@@ -18,6 +18,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # librdkafka 2.12 включает curl/curl.h даже при выключенном curl: в config.h
+      # WITH_OAUTHBEARER_OIDC определён всегда (cmakedefine01), а проверка — #ifdef.
+      # Нужны только заголовки; линковки с libcurl нет.
+      - name: Install native build deps
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libcurl4-openssl-dev
+
       - name: Set up Rust (stable)
         uses: dtolnay/rust-toolchain@stable
         with:

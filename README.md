@@ -26,6 +26,9 @@ sqlx (PostgreSQL) · axum (HTTP) · prometheus.
 
 ## Запуск
 
+Для сборки нужны Rust (stable), cmake, C/C++-компилятор и заголовки libcurl
+(`libcurl4-openssl-dev` / `curl` в Arch) — librdkafka 2.12 включает `curl/curl.h` даже без curl.
+
 ```bash
 cargo build --release
 CONTROLLERS_YAML=../scada-gateway/SCADA-gateway/src/main/resources/controllers.yaml \
