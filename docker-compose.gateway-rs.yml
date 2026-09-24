@@ -1,0 +1,25 @@
+# ============================================================================
+# Rust-шлюз вместо Java-шлюза в стеке scada-gateway — override поверх его compose.
+# Пути ниже считаются от папки scada-gateway (каталог первого -f файла).
+#
+#   cd ../scada-gateway
+#   docker compose -f docker-compose.yml -f ../SCADA_rust/docker-compose.gateway-rs.yml up -d --build gateway
+#
+# Env (SPRING_DATASOURCE_URL, SPRING_KAFKA_BOOTSTRAP_SERVERS, SIM_HOST) наследуются из
+# docker-compose.yml шлюза без изменений — Rust-шлюз читает те же переменные.
+# ============================================================================
+services:
+  gateway:
+    build: ../SCADA_rust
+    image: scada-gateway-rs:latest
+    volumes:
+      - ./SCADA-gateway/src/main/resources/controllers.yaml:/app/config/controllers.yaml:ro
+    healthcheck:
+      test: ["CMD", "/app/scada-gateway", "healthcheck"]
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 32M

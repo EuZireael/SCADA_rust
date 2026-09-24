@@ -1,0 +1,176 @@
+//! Общее состояние процесса и состояние связи с контроллерами.
+
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, AtomicU8, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use serde_json::json;
+use sqlx::PgPool;
+use tracing::{info, warn};
+
+use crate::config::Settings;
+use crate::events::{Event, EventSink, TelemetrySink};
+use crate::kafka::KafkaOut;
+use crate::metrics::Metrics;
+use crate::model::{Controller, Tag};
+use crate::opcua::OpcConnection;
+use crate::pac::PacConnection;
+
+const LINK_UNKNOWN: u8 = 0;
+const LINK_UP: u8 = 1;
+const LINK_DOWN: u8 = 2;
+
+/// Контроллер + живое состояние связи + соединение для записи команд.
+pub struct ControllerHandle {
+    pub ctrl: Controller,
+    link: AtomicU8,
+    last_good_ms: AtomicI64,
+    error_streak: AtomicU32,
+    /// Текущая OPC UA-сессия (её же использует запись команд).
+    pub opc: Mutex<Option<Arc<OpcConnection>>>,
+    /// Соединение PAC: команда идёт по тому же каналу, что и опрос (как у драйвера).
+    pub pac: tokio::sync::Mutex<Option<PacConnection>>,
+}
+
+impl ControllerHandle {
+    pub fn new(ctrl: Controller) -> Self {
+        ControllerHandle {
+            ctrl,
+            link: AtomicU8::new(LINK_UNKNOWN),
+            last_good_ms: AtomicI64::new(now_ms()),
+            error_streak: AtomicU32::new(0),
+            opc: Mutex::new(None),
+            pac: tokio::sync::Mutex::new(None),
+        }
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.link.load(Ordering::Relaxed) == LINK_UP
+    }
+
+    /// Не было удачных чтений дольше `after` — связь считаем мёртвой.
+    pub fn is_stale(&self, after: Duration) -> bool {
+        now_ms() - self.last_good_ms.load(Ordering::Relaxed) > after.as_millis() as i64
+    }
+
+    /// Отсчёт «свежести» с текущего момента (после подключения, до первого чтения).
+    pub fn touch(&self) {
+        self.last_good_ms.store(now_ms(), Ordering::Relaxed);
+    }
+
+    pub fn opc_connection(&self) -> Option<Arc<OpcConnection>> {
+        self.opc.lock().expect("mutex opc").clone()
+    }
+
+    pub fn set_opc_connection(&self, conn: Option<Arc<OpcConnection>>) {
+        *self.opc.lock().expect("mutex opc") = conn;
+    }
+}
+
+fn now_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+/// Где искать тег для команды.
+pub struct TagRef {
+    pub tag: Arc<Tag>,
+    pub controller: Arc<ControllerHandle>,
+}
+
+pub struct App {
+    pub settings: Settings,
+    pub metrics: Arc<Metrics>,
+    pub kafka: Option<Arc<KafkaOut>>,
+    pub events: EventSink,
+    pub telemetry: Option<TelemetrySink>,
+    pub db: Option<PgPool>,
+    pub controllers: Vec<Arc<ControllerHandle>>,
+    by_name: HashMap<String, (Arc<Tag>, usize)>,
+    by_id: HashMap<i64, (Arc<Tag>, usize)>,
+    pub started: Instant,
+}
+
+impl App {
+    pub fn new(
+        settings: Settings,
+        metrics: Arc<Metrics>,
+        kafka: Option<Arc<KafkaOut>>,
+        events: EventSink,
+        telemetry: Option<TelemetrySink>,
+        db: Option<PgPool>,
+        controllers: Vec<Controller>,
+    ) -> Self {
+        let controllers: Vec<Arc<ControllerHandle>> =
+            controllers.into_iter().map(|c| Arc::new(ControllerHandle::new(c))).collect();
+        let mut by_name = HashMap::new();
+        let mut by_id = HashMap::new();
+        for (idx, h) in controllers.iter().enumerate() {
+            for tag in &h.ctrl.tags {
+                by_name.insert(tag.name.clone(), (tag.clone(), idx));
+                if tag.id > 0 {
+                    by_id.insert(tag.id, (tag.clone(), idx));
+                }
+            }
+        }
+        metrics.controllers_total.set(controllers.len() as i64);
+        App { settings, metrics, kafka, events, telemetry, db, controllers, by_name, by_id, started: Instant::now() }
+    }
+
+    pub fn tag_by_name(&self, name: &str) -> Option<TagRef> {
+        self.by_name.get(name).map(|(t, i)| TagRef { tag: t.clone(), controller: self.controllers[*i].clone() })
+    }
+
+    pub fn tag_by_id(&self, id: i64) -> Option<TagRef> {
+        self.by_id.get(&id).map(|(t, i)| TagRef { tag: t.clone(), controller: self.controllers[*i].clone() })
+    }
+
+    pub fn tag_count(&self) -> usize {
+        self.by_name.len()
+    }
+
+    /// Удачное чтение: при переходе BAD→GOOD — событие CONNECTED.
+    pub fn mark_up(&self, h: &ControllerHandle) {
+        h.touch();
+        h.error_streak.store(0, Ordering::Relaxed);
+        let was = h.link.swap(LINK_UP, Ordering::Relaxed);
+        if was != LINK_UP {
+            let restored = was == LINK_DOWN;
+            info!("🟢 {}: связь {}", h.ctrl.name, if restored { "восстановлена" } else { "установлена" });
+            self.events.emit(
+                Event::new(
+                    "CONNECTION",
+                    "Gateway",
+                    "INFO",
+                    format!("Связь с {} {}", h.ctrl.name, if restored { "восстановлена" } else { "установлена" }),
+                )
+                .controller(h.ctrl.id)
+                .details(json!({"controller": h.ctrl.name, "state": "CONNECTED",
+                                "note": if restored { "link restored" } else { "initial connect" }})),
+            );
+            self.update_connected_gauge();
+        }
+    }
+
+    /// Ошибка связи: первый переход — событие DISCONNECTED, дальше лог раз в 30 ошибок.
+    pub fn mark_down(&self, h: &ControllerHandle, reason: &str) {
+        let streak = h.error_streak.fetch_add(1, Ordering::Relaxed) + 1;
+        let was = h.link.swap(LINK_DOWN, Ordering::Relaxed);
+        if was != LINK_DOWN {
+            warn!("🔴 Потеряна связь: {} ({reason})", h.ctrl.name);
+            self.events.emit(
+                Event::new("CONNECTION", "Gateway", "WARNING", format!("Потеряна связь с {}: {reason}", h.ctrl.name))
+                    .controller(h.ctrl.id)
+                    .details(json!({"controller": h.ctrl.name, "state": "DISCONNECTED", "reason": reason})),
+            );
+            self.update_connected_gauge();
+        } else if streak.is_multiple_of(30) {
+            warn!("🔴 {} всё ещё недоступен ({streak} ошибок подряд)", h.ctrl.name);
+        }
+    }
+
+    fn update_connected_gauge(&self) {
+        let up = self.controllers.iter().filter(|c| c.is_connected()).count();
+        self.metrics.controllers_connected.set(up as i64);
+    }
+}
