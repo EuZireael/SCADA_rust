@@ -12,130 +12,16 @@
 mod common;
 
 use std::collections::{HashMap, HashSet};
-use std::io::{Read, Write};
-use std::net::TcpStream;
-use std::process::{Child, Command, Stdio};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
-use rdkafka::ClientConfig;
-use rdkafka::admin::{AdminClient, AdminOptions};
-use rdkafka::client::DefaultClientContext;
-use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::consumer::StreamConsumer;
 use rdkafka::message::Message;
 use rdkafka::producer::{FutureProducer, FutureRecord};
-use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
 use serde_json::{Value, json};
 
+use common::gateway::{Gateway, consumer_from_beginning, kafka_config};
 use common::{controllers, json_type_matches};
-
-/// Шлюз-процесс; убивается при выходе из теста (в том числе по панике).
-struct Gateway {
-    child: Child,
-    port: u16,
-    prefix: String,
-    log: std::path::PathBuf,
-}
-
-impl Gateway {
-    fn start() -> Self {
-        let prefix = format!("it-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
-        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-        let log = std::env::temp_dir().join(format!("scada-gateway-{prefix}.log"));
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_scada-gateway"));
-        cmd.env("CONTROLLERS_YAML", common::controllers_path())
-            .env("SIM_HOST", common::sim_host())
-            .env("SPRING_KAFKA_BOOTSTRAP_SERVERS", common::kafka_bootstrap())
-            .env("SERVER_PORT", port.to_string())
-            .env("GATEWAY_HEARTBEAT_INTERVAL_MS", "2000");
-        for (var, suffix) in [
-            ("KAFKA_TOPICS_TELEMETRY", "tags"),
-            ("KAFKA_TOPICS_COMMANDS", "commands"),
-            ("KAFKA_TOPICS_COMMAND_RESULTS", "results"),
-            ("KAFKA_TOPICS_EVENTS", "events"),
-            ("KAFKA_TOPICS_ALARMS", "alarms"),
-        ] {
-            cmd.env(var, format!("{prefix}.{suffix}"));
-        }
-        match std::env::var("IT_DATABASE_URL") {
-            Ok(url) => {
-                cmd.env("SPRING_DATASOURCE_URL", url)
-                    .env(
-                        "SPRING_DATASOURCE_USERNAME",
-                        std::env::var("IT_DATABASE_USERNAME").unwrap_or("scada_user".into()),
-                    )
-                    .env(
-                        "SPRING_DATASOURCE_PASSWORD",
-                        std::env::var("IT_DATABASE_PASSWORD").unwrap_or("scada_password".into()),
-                    );
-            }
-            Err(_) => {
-                cmd.env("DB_ENABLED", "false");
-            }
-        }
-        let out = std::fs::File::create(&log).unwrap();
-        let child =
-            cmd.stdout(Stdio::from(out.try_clone().unwrap())).stderr(Stdio::from(out)).spawn().expect("запуск шлюза");
-        Gateway { child, port, prefix, log }
-    }
-
-    fn topic(&self, suffix: &str) -> String {
-        format!("{}.{suffix}", self.prefix)
-    }
-
-    fn get(&self, path: &str) -> Option<(u16, String)> {
-        let mut s = TcpStream::connect_timeout(&([127, 0, 0, 1], self.port).into(), Duration::from_secs(2)).ok()?;
-        s.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
-        write!(s, "GET {path} HTTP/1.0\r\nHost: localhost\r\n\r\n").ok()?;
-        let mut resp = String::new();
-        s.read_to_string(&mut resp).ok()?;
-        let status = resp.split_whitespace().nth(1)?.parse().ok()?;
-        Some((status, resp.split_once("\r\n\r\n").map(|(_, b)| b.to_string()).unwrap_or_default()))
-    }
-
-    fn log_tail(&self) -> String {
-        let text = std::fs::read_to_string(&self.log).unwrap_or_default();
-        text.lines().rev().take(30).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
-    }
-}
-
-impl Drop for Gateway {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-fn kafka_config() -> ClientConfig {
-    let mut c = ClientConfig::new();
-    c.set("bootstrap.servers", common::kafka_bootstrap());
-    c
-}
-
-/// Консьюмер всех партиций топика с начала (топик создаёт шлюз при старте — ждём его).
-async fn consumer_from_beginning(topic: &str) -> StreamConsumer {
-    let consumer: StreamConsumer =
-        kafka_config().set("group.id", "scada-gateway-it").set("enable.auto.commit", "false").create().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        let md = consumer.fetch_metadata(Some(topic), Duration::from_secs(5)).unwrap();
-        let parts: Vec<i32> = md
-            .topics()
-            .iter()
-            .filter(|t| t.name() == topic)
-            .flat_map(|t| t.partitions().iter().map(|p| p.id()))
-            .collect();
-        if !parts.is_empty() {
-            let mut tpl = TopicPartitionList::new();
-            for p in parts {
-                tpl.add_partition_offset(topic, p, Offset::Beginning).unwrap();
-            }
-            consumer.assign(&tpl).unwrap();
-            return consumer;
-        }
-        assert!(Instant::now() < deadline, "топик {topic} не появился за 30 с");
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
-}
 
 /// Отправить команду и дождаться её результата (повтор с тем же commandId безопасен —
 /// шлюз отсекает дубли; нужен, если консьюмер команд шлюза ещё не назначен).
@@ -295,9 +181,5 @@ async fn gateway_end_to_end() {
     };
     assert!(exit.success(), "код выхода {exit}\n{}", gw.log_tail());
 
-    // Уборка тестовых топиков (не критично при неудаче).
-    let admin: AdminClient<DefaultClientContext> = kafka_config().create().unwrap();
-    let topics: Vec<String> = ["tags", "commands", "results", "events", "alarms"].iter().map(|s| gw.topic(s)).collect();
-    let refs: Vec<&str> = topics.iter().map(String::as_str).collect();
-    let _ = admin.delete_topics(&refs, &AdminOptions::new()).await;
+    gw.delete_topics().await;
 }

@@ -1,6 +1,7 @@
 # SCADA Gateway (Rust)
 
 [![CI/CD](https://github.com/EuZireael/SCADA_rust/actions/workflows/ci.yml/badge.svg)](https://github.com/EuZireael/SCADA_rust/actions/workflows/ci.yml)
+[![Audit](https://github.com/EuZireael/SCADA_rust/actions/workflows/audit.yml/badge.svg)](https://github.com/EuZireael/SCADA_rust/actions/workflows/audit.yml)
 
 Шлюз сбора данных АСУ ТП на Rust — замена Java-шлюза из `scada-gateway`. Опрашивает
 контроллеры по **OPC UA**, **Modbus TCP** и **PAC** (driver-master, Savushkin/ptusa),
@@ -97,8 +98,15 @@ SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094 \
 - **Смена качества — одно сводное событие на цикл** вместо события на каждый тег.
 - **OPC UA без discovery** — подключение прямо к адресу из конфига; чтение пачками по 500 узлов.
 - **Команды читаются с конца топика**: команда, пролежавшая, пока шлюз стоял, в ПЛК не уходит.
-- **Lua от контроллера** — урезанный стейт (без io/os/package и чтения файлов). Тела ответов
-  ptusa — C-строки с `\0` (настоящий Lua 5.1 на нём падает, текст режется).
+- **Lua от контроллера — в песочнице**: без io/os/package и файлов, без `load`/`loadstring`/
+  `string.dump` (байткод Lua 5.1 не проверяется — это выход из песочницы) и `pcall`; потолок
+  64 МБ памяти и 1 с на скрипт — зависший или раздувшийся скрипт рвёт соединение, а не
+  вешает опрос и команды. Тела ответов ptusa — C-строки с `\0` (настоящий Lua 5.1 на нём
+  падает, текст режется).
+- **Modbus подстраивает план чтения под карту регистров**: блоки читаются вместе с
+  промежутками между тегами; если ПЛК отвечает на блок IllegalDataAddress (в промежутке
+  регистра нет), блок делится пополам, пока части не прочитаются, — в том же цикле, без
+  настройки. Исключение на регистре самого тега — BAD только у этого тега.
 
 ## Не перенесено
 
@@ -109,19 +117,21 @@ SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094 \
 
 ## Проверено
 
-- 40 юнит-тестов, сверка конфигураций шлюза и симулятора, 6 интеграционных
-  (`cargo test -- --ignored`), 40 тестов симулятора (pytest); clippy без замечаний.
+- 46 юнит-тестов, сверка конфигураций шлюза и симулятора, 7 интеграционных
+  (`cargo test -- --ignored`), 40 тестов симулятора (pytest); clippy без замечаний;
+  `cargo audit` чистый (одно обоснованное исключение в `.cargo/audit.toml`).
 - Стенд с PLC-симулятором: 2517 тегов GOOD в `scada.tags`, формат байт-в-байт
   с Java (типизированные значения, timestamp в epoch-секундах); команды через Kafka — APPLIED
   (OPC UA, PAC), REJECTED_NOT_WRITABLE (датчик, Modbus), REJECTED_UNKNOWN_TAG,
-  REJECTED_TYPE_MISMATCH, дубль отброшен; обрыв и восстановление всех трёх контроллеров.
+  REJECTED_TYPE_MISMATCH, дубль отброшен; обрыв и восстановление всех трёх контроллеров
+  (автоматически — `tests/faults.rs`).
 - Эмулятор настоящего PAC (ptusa 2026.4.2.1, `scripts/ptusa_emulator.sh`):
   122/172 канала GOOD (50 — каналы, которых нет в реальном проекте ПЛК), запись применяется.
 
 ## Тесты
 
 ```bash
-cargo test                      # 40 юнит-тестов + сверка config ↔ simulator, без внешних систем
+cargo test                      # 46 юнит-тестов + сверка config ↔ simulator, без внешних систем
 cargo test -- --ignored         # интеграционные: нужны симулятор и Kafka
 ```
 
@@ -136,6 +146,10 @@ cargo test -- --ignored         # интеграционные: нужны си�
 - `tests/e2e.rs` — собранный шлюз как процесс, проверка глазами монитора на топиках `it-<id>.*`:
   все теги GOOD и контракт тела телеметрии, команды через Kafka со всеми статусами и доходом
   записи до телеметрии, метрики, журнал в БД и REST (при `IT_DATABASE_URL`), остановка по SIGTERM.
+- `tests/faults.rs` — обрыв связи: шлюз ходит к симулятору через TCP-прокси теста, прокси
+  сначала рвёт соединения, потом «вешает» их (открыты, но без ответов); по всем трём
+  контроллерам проверяются DOWN в `/actuator/health`, кадры BAD, события DISCONNECTED, затем
+  восстановление — UP, GOOD и событие «link restored».
 
 | Переменная | По умолчанию |
 |---|---|
@@ -150,6 +164,10 @@ cargo test -- --ignored         # интеграционные: нужны си�
 `cargo test`, pytest симулятора, интеграционные тесты (свой симулятор, Kafka и Postgres
 как service-контейнеры); на push в `main` и теги `vX.Y.Z` — образ `ghcr.io/euzireael/scada_rust`
 (`:latest`/`:vX.Y.Z` + `:<sha>`).
+
+`.github/workflows/audit.yml`: `cargo audit --deny warnings` по базе RustSec на каждый push/PR
+и раз в неделю (новые уязвимости появляются без наших коммитов); исключения с обоснованием —
+`.cargo/audit.toml`.
 
 ## Структура
 
@@ -170,7 +188,8 @@ src/
   db.rs          схема, синхронизация с YAML, журнал, история
   http.rs        /actuator/*, /api/*
 migrations/      схема БД (совместима с Flyway-схемой Java-шлюза)
-tests/           интеграционные тесты (simulator.rs — протоколы, e2e.rs — шлюз целиком)
+tests/           интеграционные тесты (simulator.rs — протоколы, e2e.rs — шлюз целиком,
+                 faults.rs — обрыв связи; common/ — запуск шлюза, TCP-прокси)
 config/          controllers.yaml — каналы станции
 simulator/       PLC-симулятор (Python) + его тесты
 scripts/         эмулятор настоящего PAC (ptusa)

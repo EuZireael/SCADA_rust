@@ -7,6 +7,9 @@
 //!   IT_DATABASE_URL   — если задан (jdbc:postgresql://…), сквозной тест гоняет шлюз с БД
 #![allow(dead_code)]
 
+pub mod gateway;
+pub mod proxy;
+
 use std::path::PathBuf;
 use std::time::Duration;
 
