@@ -1,0 +1,91 @@
+# ============================================================================
+# Dependabot — PR на обновление зависимостей раз в неделю. PR проходят тот же CI
+# (ci.yml: тесты, интеграционные против симулятора, сборка образа), поэтому «красное»
+# обновление не влить. Уязвимости — отдельно: audit.yml и security updates Dependabot.
+# ============================================================================
+version: 2
+updates:
+  # ---- Rust: зависимости шлюза (Cargo.toml / Cargo.lock) ----
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "rust"]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # Патчи совместимы по semver Cargo — одним PR.
+      rust-patch:
+        update-types: ["patch"]
+      # Минорные у крейтов ≥ 1.0 тоже совместимы — одним PR. У 0.x минор ломающий
+      # (async-opcua 0.19 → 0.20, rdkafka, mlua, sqlx, axum…) — такие приходят отдельными PR.
+      rust-minor-stable:
+        update-types: ["minor"]
+        patterns: ["anyhow", "flate2", "serde", "serde_json", "thiserror", "tokio", "uuid", "tempfile"]
+
+  # ---- Python: зависимости симулятора (simulator/requirements.txt) ----
+  - package-ecosystem: "pip"
+    directory: "/simulator"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "python"]
+    commit-message:
+      prefix: "chore(deps)"
+    ignore:
+      # pymodbus 3.8 переименовал датастор, 3.15 переписал его — ломает core/modbus_server.py.
+      - dependency-name: "pymodbus"
+        versions: [">=3.8"]
+      # asyncua 2.x — мажор OPC UA-сервера, нужна ручная миграция симулятора.
+      - dependency-name: "asyncua"
+        versions: [">=2"]
+      # numpy 2.5+ требует Python ≥ 3.12, а симулятор держим на 3.11 (см. python ниже).
+      - dependency-name: "numpy"
+        versions: [">=2.5"]
+
+  # ---- GitHub Actions: версии экшенов в workflow — одним PR ----
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # ---- Docker: базовые образы Dockerfile'ов ----
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "chore(deps)"
+  - package-ecosystem: "docker"
+    directory: "/simulator"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "chore(deps)"
+    ignore:
+      # asyncua 1.1.8 не работает на Python 3.12+ (баг issubclass) — держим 3.11.
+      - dependency-name: "python"
+        versions: [">=3.12"]
+
+  # ---- Docker Compose: образы стенда (kafka, postgres) ----
+  # Версию Kafka в services.kafka CI (ci.yml) держать такой же — его Dependabot не видит.
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "chore(deps)"
+    ignore:
+      # Мажор PostgreSQL несовместим с томом данных pgdata (нужен pg_upgrade/дамп) — вручную.
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]

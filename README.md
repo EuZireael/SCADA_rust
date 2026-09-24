@@ -169,6 +169,20 @@ cargo test -- --ignored         # интеграционные: нужны си�
 и раз в неделю (новые уязвимости появляются без наших коммитов); исключения с обоснованием —
 `.cargo/audit.toml`.
 
+`.github/dependabot.yml`: раз в неделю PR на обновления — crates (патчи и миноры крейтов ≥ 1.0
+одним PR, 0.x — по отдельности), pip симулятора, экшены, базовые образы и образы стенда
+(Kafka закреплена версией). Исключены обновления, требующие ручной миграции: pymodbus ≥ 3.8,
+asyncua 2, Python ≥ 3.12 у симулятора, мажор PostgreSQL (несовместим с томом данных).
+
+### Релиз
+
+1. Версия в `Cargo.toml` (+ `cargo check`, чтобы обновился `Cargo.lock`).
+2. Раздел `## [X.Y.Z] — дата` в `CHANGELOG.md` (из `[Unreleased]`).
+3. `git tag -a vX.Y.Z -m "…" && git push origin vX.Y.Z`.
+
+CI проверит, что тег совпадает с `Cargo.toml`, прогонит тесты, опубликует
+`ghcr.io/euzireael/scada_rust:vX.Y.Z` и создаст GitHub Release с текстом раздела.
+
 ## Структура
 
 ```
@@ -194,4 +208,5 @@ config/          controllers.yaml — каналы станции
 simulator/       PLC-симулятор (Python) + его тесты
 scripts/         эмулятор настоящего PAC (ptusa)
 docker-compose.yml   стенд целиком
+CHANGELOG.md         история версий (текст GitHub Release)
 ```

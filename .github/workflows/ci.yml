@@ -2,6 +2,7 @@
 # CI/CD Rust-шлюза.
 #   На каждый push и PR: форматирование, clippy (предупреждения = ошибки), тесты.
 #   На push в main и теги vX.Y.Z: образ публикуется в GHCR.
+#   На тег vX.Y.Z после зелёных тестов — GitHub Release с разделом CHANGELOG.md.
 # ============================================================================
 name: CI/CD
 
@@ -68,7 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       kafka:
-        image: apache/kafka:latest      # KRaft, одна нода, PLAINTEXT localhost:9092
+        image: apache/kafka:4.3.1       # KRaft, одна нода, PLAINTEXT localhost:9092; версия — как в docker-compose.yml
         ports: [ "9092:9092" ]
       postgres:
         image: postgres:16
@@ -101,9 +102,9 @@ jobs:
           pip install -q -r requirements.txt
           OPCUA_ENDPOINT=opc.tcp://127.0.0.1:4840 nohup python simulator.py config/replay_config.yaml > "$RUNNER_TEMP/simulator.log" 2>&1 &
           for port in 4840 5020 10000; do
-            for i in $(seq 60); do (echo > /dev/tcp/127.0.0.1/$port) 2>/dev/null && break; sleep 1; done
+            for _ in $(seq 60); do (echo > /dev/tcp/127.0.0.1/$port) 2>/dev/null && break; sleep 1; done
           done
-          for i in $(seq 60); do (echo > /dev/tcp/127.0.0.1/9092) 2>/dev/null && break; sleep 1; done
+          for _ in $(seq 60); do (echo > /dev/tcp/127.0.0.1/9092) 2>/dev/null && break; sleep 1; done
           tail -3 "$RUNNER_TEMP/simulator.log"
 
       - name: Integration tests
@@ -129,6 +130,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Тег релиза должен совпадать с версией в Cargo.toml (её пишет в лог сам шлюз) —
+      # иначе образ :vX.Y.Z содержал бы другую версию.
+      - name: Check tag matches Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          [ "v$VERSION" = "$GITHUB_REF_NAME" ] || { echo "::error::тег $GITHUB_REF_NAME ≠ версия Cargo.toml $VERSION"; exit 1; }
+
       # На PR образ только собирается (проверка Dockerfile), публикуется на push.
       - name: Log in to GHCR
         if: github.event_name == 'push'
@@ -149,6 +158,11 @@ jobs:
             *)               TAGS="$IMAGE:ci-${{ github.sha }}" ;;
           esac
           ARGS=""; for t in $TAGS; do ARGS="$ARGS -t $t"; done
+          # OCI-метки: GHCR привязывает пакет к репозиторию, по образу видно версию и коммит.
+          case "${{ github.ref }}" in refs/tags/v*) VERSION="${{ github.ref_name }}" ;; *) VERSION="${{ github.sha }}" ;; esac
+          ARGS="$ARGS --label org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}"
+          ARGS="$ARGS --label org.opencontainers.image.revision=${{ github.sha }}"
+          ARGS="$ARGS --label org.opencontainers.image.version=$VERSION"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "args=$ARGS" >> "$GITHUB_OUTPUT"
 
@@ -158,3 +172,28 @@ jobs:
       - name: Push image
         if: github.event_name == 'push'
         run: docker push -a ${{ steps.meta.outputs.image }}
+
+  # Тег vX.Y.Z → GitHub Release: текст — раздел этой версии из CHANGELOG.md, плюс команда
+  # для образа. Только после зелёных интеграционных тестов и публикации образа.
+  release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [integration, docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Release notes from CHANGELOG.md
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v v="$VERSION" 'index($0, "## [" v "]") == 1 {on=1; next} on && /^## \[/ {exit} on' CHANGELOG.md > notes.md
+          grep -q '[^[:space:]]' notes.md || { echo "::error::в CHANGELOG.md нет раздела [$VERSION]"; exit 1; }
+          IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          { echo; echo '---'; echo; echo "Образ: \`docker pull $IMAGE:$GITHUB_REF_NAME\`"; } >> notes.md
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
