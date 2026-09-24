@@ -9,30 +9,83 @@
 //! с 1, хвост после `]` (`PAR_MAIN[1].P_CZAD_S`) — подпись канала, в адрес не входит.
 //! Это настоящий Lua 5.1 (как в самом ptusa), а не эмуляция.
 
+use std::time::{Duration, Instant};
+
 use anyhow::Result;
-use mlua::{Lua, LuaOptions, StdLib, Table, Value};
+use mlua::{HookTriggers, Lua, LuaOptions, StdLib, Table, Value, VmState};
 
 use crate::model::{self, TagValue};
 
+/// Потолок памяти стейта. Снимок станции — единицы МБ вместе с мусором между сборками.
+pub const MEMORY_LIMIT: usize = 64 * 1024 * 1024;
+/// Время на один скрипт. Разбор снимка — миллисекунды; скрипт исполняется прямо в задаче
+/// опроса и держит соединение PAC (и команды к нему), поэтому зависать не должен.
+pub const TIME_BUDGET: Duration = Duration::from_secs(1);
+/// Как часто проверять время (в инструкциях VM).
+const HOOK_EVERY: u32 = 10_000;
+
+/// Глобальные функции базовой библиотеки, убираемые из стейта:
+/// * `load`, `loadstring`, `string.dump` — байткод: Lua 5.1 его не проверяет, и собранный
+///   скриптом байткод — выход из песочницы в память процесса;
+/// * `dofile`, `loadfile`, `require`, `module` — файлы и модули;
+/// * `pcall`, `xpcall` — перехват ошибки лимита времени и продолжение цикла;
+/// * `collectgarbage`, `getfenv`, `setfenv`, `newproxy` — управление GC и окружениями.
+///
+/// Снимок ptusa — только присваивания таблиц (`t.X = t.X or {}` и литералы), ему не нужно
+/// ничего из этого.
+const REMOVED_GLOBALS: [&str; 12] = [
+    "load",
+    "loadstring",
+    "dofile",
+    "loadfile",
+    "require",
+    "module",
+    "pcall",
+    "xpcall",
+    "collectgarbage",
+    "getfenv",
+    "setfenv",
+    "newproxy",
+];
+
 pub struct PacLua {
     lua: Lua,
+    time_budget: Duration,
 }
 
 impl PacLua {
-    /// Новый стейт. Скрипт присылает контроллер, поэтому только чистые вычисления:
-    /// без io/os/package и без чтения файлов — иначе любой, кто ответит на порту PAC,
-    /// исполнял бы код в процессе шлюза.
+    /// Новый стейт. Скрипт присылает контроллер — то есть любой, кто ответит на порту PAC,
+    /// поэтому только чистые вычисления: без io/os/package, без файлов и байткода, с
+    /// потолком памяти и времени.
     pub fn new() -> Result<Self> {
-        let lua = Lua::new_with(StdLib::TABLE | StdLib::STRING | StdLib::MATH, LuaOptions::default())?;
-        for unsafe_fn in ["dofile", "loadfile", "require", "module"] {
-            lua.globals().set(unsafe_fn, Value::Nil)?;
-        }
-        Ok(PacLua { lua })
+        Self::with_limits(MEMORY_LIMIT, TIME_BUDGET)
     }
 
-    /// Исполнить Lua-скрипт в стейте (наполняет глобальные переменные).
+    pub fn with_limits(memory: usize, time_budget: Duration) -> Result<Self> {
+        let lua = Lua::new_with(StdLib::TABLE | StdLib::STRING | StdLib::MATH, LuaOptions::default())?;
+        let globals = lua.globals();
+        for name in REMOVED_GLOBALS {
+            globals.set(name, Value::Nil)?;
+        }
+        globals.get::<Table>("string")?.set("dump", Value::Nil)?;
+        lua.set_memory_limit(memory)?;
+        Ok(PacLua { lua, time_budget })
+    }
+
+    /// Исполнить Lua-скрипт в стейте (наполняет глобальные переменные). Ошибка — в том
+    /// числе исчерпание памяти или времени; стейт после неё соединение не переиспользует.
     pub fn exec(&self, script: &str) -> Result<()> {
-        self.lua.load(script).exec()?;
+        let deadline = Instant::now() + self.time_budget;
+        self.lua.set_hook(HookTriggers::new().every_nth_instruction(HOOK_EVERY), move |_, _| {
+            if Instant::now() > deadline {
+                Err(mlua::Error::runtime("скрипт PAC исполняется дольше лимита"))
+            } else {
+                Ok(VmState::Continue)
+            }
+        })?;
+        let result = self.lua.load(script).exec();
+        self.lua.remove_hook();
+        result?;
         Ok(())
     }
 
@@ -180,11 +233,36 @@ mod tests {
     #[test]
     fn state_has_no_host_access() {
         let l = PacLua::new().unwrap();
-        for name in ["os", "io", "package", "require", "dofile", "loadfile", "debug"] {
+        for name in ["os", "io", "package", "debug"].into_iter().chain(REMOVED_GLOBALS) {
             assert!(l.global_is_nil(name), "{name} не должен быть доступен скрипту контроллера");
         }
         l.exec("t = t or {}\nt.X = {V = math.max(1, 2), S = string.upper('ok')}").unwrap();
         assert_eq!(l.read("X", "V", "FLOAT"), Some(TagValue::F64(2.0)));
+    }
+
+    #[test]
+    fn bytecode_cannot_be_loaded() {
+        let l = PacLua::new().unwrap();
+        assert!(l.exec("f = loadstring(string.dump(function() return 42 end))").is_err());
+        assert!(l.exec("s = string.dump(print)").is_err());
+    }
+
+    #[test]
+    fn endless_script_is_stopped_by_time_budget() {
+        let l = PacLua::with_limits(MEMORY_LIMIT, Duration::from_millis(200)).unwrap();
+        let started = Instant::now();
+        assert!(l.exec("while true do end").is_err());
+        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+        // Лимит — на каждый скрипт, а не на жизнь стейта.
+        l.exec(SNAPSHOT).unwrap();
+        assert_eq!(l.read("LINE1V0", "ST", "INT32"), Some(TagValue::Int(1)));
+    }
+
+    #[test]
+    fn memory_bomb_is_stopped_by_memory_limit() {
+        let l = PacLua::with_limits(8 * 1024 * 1024, TIME_BUDGET).unwrap();
+        let err = l.exec("s = string.rep('x', 64 * 1024 * 1024)").unwrap_err();
+        assert!(err.to_string().contains("memory"), "{err}");
     }
 
     #[test]
