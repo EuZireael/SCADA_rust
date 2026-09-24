@@ -166,7 +166,8 @@ async fn run_opcua(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancell
 async fn run_modbus(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: CancellationToken) {
     let gw = &app.settings.gateway;
     let tags = tags_of(&handle, Protocol::Modbus);
-    let blocks = modbus::plan_blocks(&tags);
+    // План чтения; при дырах в карте регистров ПЛК клиент его дробит (см. ModbusClient::read).
+    let mut blocks = modbus::plan_blocks(&tags);
     let (host, port) = modbus::endpoint(&handle.ctrl.endpoint);
     // unitId общий для контроллера (в конфиге один на всех тегах).
     let unit = tags.first().map(|t| t.modbus_unit_id).unwrap_or(1);
@@ -180,7 +181,7 @@ async fn run_modbus(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancel
             _ = cancel.cancelled() => return,
             _ = tick.tick() => {}
         }
-        match client.read(&blocks).await {
+        match client.read(&mut blocks).await {
             Ok(values) => {
                 let ts = Timestamp::now(); // у Modbus нет времени источника — момент чтения
                 let readings: Vec<Reading> = values

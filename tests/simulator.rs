@@ -96,11 +96,11 @@ async fn opcua_write_applies_and_readonly_is_rejected() {
 async fn modbus_reads_every_configured_tag() {
     let ctrl = controller(ControllerKind::Modbus);
     let tags: Vec<_> = ctrl.tags.iter().filter(|t| t.protocol == Protocol::Modbus).cloned().collect();
-    let blocks = modbus::plan_blocks(&tags);
+    let mut blocks = modbus::plan_blocks(&tags);
     let (host, port) = modbus::endpoint(&ctrl.endpoint);
     let mut client = ModbusClient::new(host, port, tags[0].modbus_unit_id, OP_TIMEOUT);
 
-    let values = client.read(&blocks).await.expect(NEED_SIM);
+    let values = client.read(&mut blocks).await.expect(NEED_SIM);
     assert_eq!(values.len(), tags.len(), "каждый тег попал в план чтения");
     let problems: Vec<String> = values
         .iter()
