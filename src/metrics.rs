@@ -17,6 +17,12 @@ pub struct Metrics {
     pub telemetry_rows_dropped: IntCounter,
 }
 
+impl Default for Metrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Metrics {
     pub fn new() -> Self {
         let labels = HashMap::from([("application".to_string(), "scada-gateway".to_string())]);

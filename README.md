@@ -91,7 +91,7 @@ docker compose -f docker-compose.yml -f ../SCADA_rust/docker-compose.gateway-rs.
 
 ## Проверено
 
-- 40 юнит-тестов (`cargo test`), clippy без замечаний.
+- 40 юнит-тестов и 6 интеграционных (`cargo test -- --ignored`), clippy без замечаний.
 - Стенд `scada-gateway` с Python-симулятором: 2517 тегов GOOD в `scada.tags`, формат байт-в-байт
   с Java (типизированные значения, timestamp в epoch-секундах); команды через Kafka — APPLIED
   (OPC UA, PAC), REJECTED_NOT_WRITABLE (датчик, Modbus), REJECTED_UNKNOWN_TAG,
@@ -99,10 +99,35 @@ docker compose -f docker-compose.yml -f ../SCADA_rust/docker-compose.gateway-rs.
 - Эмулятор настоящего PAC (ptusa 2026.4.2.1, `scada-gateway/tools/ptusa_emulator.sh`):
   122/172 канала GOOD (50 — каналы, которых нет в реальном проекте ПЛК), запись применяется.
 
+## Тесты
+
+```bash
+cargo test                      # 40 юнит-тестов, без внешних систем
+cargo test -- --ignored         # интеграционные: нужны симулятор и Kafka
+```
+
+Интеграционные тесты помечены `#[ignore]` и идут против PLC-симулятора из `scada-gateway`
+(локально — стенд `../scada-gateway/up.sh`):
+
+- `tests/simulator.rs` — клиенты протоколов: каждый тег `controllers.yaml` читается своим
+  протоколом с верным типом (OPC UA, Modbus, PAC); запись по OPC UA и PAC применяется и
+  откатывается; RO-узел и несуществующий прибор отклоняются.
+- `tests/e2e.rs` — собранный шлюз как процесс, проверка глазами монитора на топиках `it-<id>.*`:
+  все теги GOOD и контракт тела телеметрии, команды через Kafka со всеми статусами и доходом
+  записи до телеметрии, метрики, журнал в БД и REST (при `IT_DATABASE_URL`), остановка по SIGTERM.
+
+| Переменная | По умолчанию |
+|---|---|
+| `SIM_HOST` | `127.0.0.1` |
+| `KAFKA_BOOTSTRAP` | `localhost:9094` (внешний listener стенда) |
+| `CONTROLLERS_YAML` | `../scada-gateway/SCADA-gateway/src/main/resources/controllers.yaml` |
+| `IT_DATABASE_URL` | не задан — шлюз в тесте без БД (пустая база: `createdb scada_it`) |
+
 ## CI/CD
 
 `.github/workflows/ci.yml`: на каждый push и PR — `cargo fmt --check`, clippy (`-D warnings`),
-`cargo test`; на push в `main` и теги `vX.Y.Z` — образ `ghcr.io/euzireael/scada_rust`
+`cargo test`, интеграционные тесты (симулятор из `savushkin-dev/scada-gateway`, Kafka и Postgres
+как service-контейнеры); на push в `main` и теги `vX.Y.Z` — образ `ghcr.io/euzireael/scada_rust`
 (`:latest`/`:vX.Y.Z` + `:<sha>`).
 
 ## Структура

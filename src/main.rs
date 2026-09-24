@@ -4,21 +4,7 @@
 //! Контракты — как у Java-шлюза (controllers.yaml, топики и формат Kafka, статусы команд,
 //! env-переменные, /actuator/health и метрики), поэтому встаёт на его место без правок.
 
-mod app;
-mod command;
-mod config;
-mod db;
-mod events;
-mod http;
-mod kafka;
-mod messages;
-mod metrics;
-mod modbus;
-mod model;
-mod opcua;
-mod pac;
-mod poller;
-mod telemetry;
+use scada_gateway::{command, config, db, events, http, kafka, poller};
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,13 +16,13 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
-use crate::app::App;
-use crate::command::Dedup;
-use crate::config::Settings;
-use crate::events::Event;
-use crate::kafka::KafkaOut;
-use crate::metrics::Metrics;
-use crate::model::Controller;
+use scada_gateway::app::App;
+use scada_gateway::command::Dedup;
+use scada_gateway::config::Settings;
+use scada_gateway::events::Event;
+use scada_gateway::kafka::KafkaOut;
+use scada_gateway::metrics::Metrics;
+use scada_gateway::model::Controller;
 
 fn main() -> Result<()> {
     // `scada-gateway healthcheck` — проверка для HEALTHCHECK контейнера без curl в образе.

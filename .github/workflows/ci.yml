@@ -42,6 +42,72 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+  # Интеграционные тесты (#[ignore] в обычном cargo test): клиенты протоколов и шлюз
+  # целиком против PLC-симулятора из scada-gateway, Kafka и Postgres.
+  integration:
+    name: Integration tests (simulator + Kafka + Postgres)
+    needs: check
+    runs-on: ubuntu-latest
+    services:
+      kafka:
+        image: apache/kafka:latest      # KRaft, одна нода, PLAINTEXT localhost:9092
+        ports: [ "9092:9092" ]
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: scada_it
+          POSTGRES_USER: scada_user
+          POSTGRES_PASSWORD: scada_password
+        ports: [ "5432:5432" ]
+        options: >-
+          --health-cmd "pg_isready -U scada_user -d scada_it"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v7
+
+      # Симулятор и controllers.yaml — из репозитория Java-шлюза (там же их источник истины).
+      - name: Checkout scada-gateway (simulator + controllers.yaml)
+        uses: actions/checkout@v7
+        with:
+          repository: savushkin-dev/scada-gateway
+          path: scada-gateway
+
+      - name: Install native build deps
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libcurl4-openssl-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Python 3.11: asyncua 1.1.8 симулятора на 3.14 не работает (баг клиента).
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Start PLC simulator
+        working-directory: scada-gateway/plc-simulator
+        run: |
+          pip install -q -r requirements.txt
+          OPCUA_ENDPOINT=opc.tcp://127.0.0.1:4840 nohup python simulator.py config/replay_config.yaml > "$RUNNER_TEMP/simulator.log" 2>&1 &
+          for port in 4840 5020 10000; do
+            for i in $(seq 60); do (echo > /dev/tcp/127.0.0.1/$port) 2>/dev/null && break; sleep 1; done
+          done
+          for i in $(seq 60); do (echo > /dev/tcp/127.0.0.1/9092) 2>/dev/null && break; sleep 1; done
+          tail -3 "$RUNNER_TEMP/simulator.log"
+
+      - name: Integration tests
+        env:
+          SIM_HOST: 127.0.0.1
+          KAFKA_BOOTSTRAP: localhost:9092
+          CONTROLLERS_YAML: ${{ github.workspace }}/scada-gateway/SCADA-gateway/src/main/resources/controllers.yaml
+          IT_DATABASE_URL: jdbc:postgresql://localhost:5432/scada_it
+        run: cargo test --locked -- --ignored
+
+      - name: Logs on failure
+        if: failure()
+        run: |
+          echo "=== simulator ==="; tail -50 "$RUNNER_TEMP/simulator.log" || true
+          for f in /tmp/scada-gateway-it-*.log; do echo "=== $f ==="; tail -80 "$f"; done || true
+
   docker:
     name: Build & publish image (GHCR)
     needs: check

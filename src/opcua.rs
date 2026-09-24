@@ -188,7 +188,9 @@ pub fn to_variant(data_type: &str, value: &TagValue) -> Result<Variant> {
 /// Исход неудачной записи по StatusCode сервера (коды — OPC UA Part 4/6).
 pub fn classify_write_status(status: StatusCode) -> &'static str {
     match status.bits() & 0xFFFF_0000 {
-        0x803B_0000 | 0x8073_0000 => "REJECTED_NOT_WRITABLE", // Bad_NotWritable, Bad_WriteNotSupported
+        // Bad_NotWritable, Bad_WriteNotSupported, Bad_UserAccessDenied — последним на запись в
+        // узел только для чтения отвечают многие серверы (asyncua симулятора в том числе).
+        0x803B_0000 | 0x8073_0000 | 0x801F_0000 => "REJECTED_NOT_WRITABLE",
         0x8074_0000 | 0x803C_0000 => "REJECTED_TYPE_MISMATCH", // Bad_TypeMismatch, Bad_OutOfRange
         _ => "FAILED_WRITE",
     }
@@ -218,6 +220,7 @@ mod tests {
     #[test]
     fn write_status_classification() {
         assert_eq!(classify_write_status(StatusCode::from(0x803B_0000u32)), "REJECTED_NOT_WRITABLE");
+        assert_eq!(classify_write_status(StatusCode::from(0x801F_0000u32)), "REJECTED_NOT_WRITABLE");
         assert_eq!(classify_write_status(StatusCode::from(0x8074_0000u32)), "REJECTED_TYPE_MISMATCH");
         assert_eq!(classify_write_status(StatusCode::from(0x8002_0000u32)), "FAILED_WRITE");
     }
