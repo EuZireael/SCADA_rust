@@ -1,0 +1,26 @@
+# ============================================================================
+# Уязвимости зависимостей (база RustSec): на каждый push/PR и раз в неделю — новые
+# уязвимости публикуются без наших коммитов. Исключения с обоснованием — .cargo/audit.toml.
+# ============================================================================
+name: Audit
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  schedule:
+    - cron: '0 6 * * 1'        # понедельник, 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  audit:
+    name: cargo audit (RustSec)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Готовый бинарник cargo-audit вместо сборки из исходников (минуты).
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      # --deny warnings: заброшенные и отозванные крейты тоже роняют проверку.
+      - run: cargo audit --deny warnings
