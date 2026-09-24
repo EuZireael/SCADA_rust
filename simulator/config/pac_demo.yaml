@@ -1,0 +1,37 @@
+# ============================================================================
+# Демо-конфиг ТРЕТЬЕГО типа контроллера — PAC (протокол driver-master).
+#   Маленький самодостаточный PAC-контроллер для проверки pac-сервера БЕЗ архива:
+#   значения дают синтетические генераторы (sine), команды оператора — RW-поля ST.
+#
+#   Запуск:  python simulator.py config/pac_demo.yaml
+#   Проверка: python tools/pac_probe.py            (мини-драйвер, порт 10000)
+#
+#   OPC UA (:4840) и Modbus (:5020) поднимутся пустыми (opcua/modbus-тегов тут нет) —
+#   это норма. node.id (9001..) демо-локальные, вне реальных 2471 каналов.
+# ============================================================================
+plc:
+  id: PAC-DEMO
+  name: PAC_DEMO
+  endpoint: opc.tcp://0.0.0.0:4840
+  update_rate: 0.5
+  data_blocks:
+  - db_number: 1
+    name: PAC_DEMO
+    tags:
+    # Прибор 1V1 (клапан V): ST — состояние (RW, ставит оператор), M — режим/позиция (RO).
+    - {name: "9001", address: "9001", type: bool,  protocol: pac, device: "1V1",  field: "ST", dev_type: "V",  access: RW, initial: 0, noise_enabled: false, drift_enabled: false}
+    - {name: "9002", address: "9002", type: float, protocol: pac, device: "1V1",  field: "M",  dev_type: "V",  access: RO, initial: 20, generator: sine, generator_params: {amplitude: 5,  period: 30}, noise_enabled: false, drift_enabled: false}
+    # Прибор 1V2 (клапан V).
+    - {name: "9003", address: "9003", type: bool,  protocol: pac, device: "1V2",  field: "ST", dev_type: "V",  access: RW, initial: 0, noise_enabled: false, drift_enabled: false}
+    - {name: "9004", address: "9004", type: float, protocol: pac, device: "1V2",  field: "M",  dev_type: "V",  access: RO, initial: 20, generator: sine, generator_params: {amplitude: 8,  period: 45}, noise_enabled: false, drift_enabled: false}
+    # Прибор 1LT1 (датчик уровня LT): V — значение уровня (RO, 0..100).
+    - {name: "9005", address: "9005", type: float, protocol: pac, device: "1LT1", field: "V",  dev_type: "LT", access: RO, initial: 50, min: 0, max: 100, generator: sine, generator_params: {amplitude: 20, period: 60}, noise_enabled: false, drift_enabled: false}
+    # Прибор 1M1 (мотор M): ST — пуск/стоп (RW), V — обороты (RO).
+    - {name: "9006", address: "9006", type: bool,  protocol: pac, device: "1M1",  field: "ST", dev_type: "M",  access: RW, initial: 0, noise_enabled: false, drift_enabled: false}
+    - {name: "9007", address: "9007", type: float, protocol: pac, device: "1M1",  field: "V",  dev_type: "M",  access: RO, initial: 1450, generator: sine, generator_params: {amplitude: 50, period: 20}, noise_enabled: false, drift_enabled: false}
+
+pac_port: 10000
+
+# Архив не нужен — значения синтетические.
+replay:
+  enabled: false

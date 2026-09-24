@@ -6,6 +6,9 @@
 контроллеры по **OPC UA**, **Modbus TCP** и **PAC** (driver-master, Savushkin/ptusa),
 публикует телеметрию, события и алармы в **Kafka** для монитора, принимает команды записи.
 
+Репозиторий самодостаточный: PLC-симулятор (`simulator/`), конфигурация станции
+(`config/controllers.yaml`) и весь стенд (`docker-compose.yml`) — здесь же.
+
 Внешние контракты — как у Java-шлюза, поэтому он встаёт на его место без правок у монитора:
 тот же `controllers.yaml`, те же топики и формат сообщений Kafka, статусы команд,
 env-переменные, `/actuator/health`, метрики Prometheus и схема БД (`event_log`, `tags`…).
@@ -26,27 +29,42 @@ sqlx (PostgreSQL) · axum (HTTP) · prometheus.
 
 ## Запуск
 
-Для сборки нужны Rust (stable), cmake, C/C++-компилятор и заголовки libcurl
-(`libcurl4-openssl-dev` / `curl` в Arch) — librdkafka 2.12 включает `curl/curl.h` даже без curl.
+Весь стенд — postgres, kafka, PLC-симулятор и шлюз — одной командой:
 
 ```bash
+docker compose up -d --build      # шлюз: http://localhost:8888/actuator/health
+docker compose logs -f gateway
+docker compose down               # остановить (данные БД сохранятся; -v — стереть)
+```
+
+Порты на хост: шлюз `:8888`, Kafka `:9094`, PostgreSQL `:5433`, симулятор `:4840` (OPC UA) /
+`:5020` (Modbus) / `:10000` (PAC) — те же, что у стенда Java-шлюза, одновременно их не поднимать.
+
+Шлюз локально (нужны Rust stable, cmake, C/C++-компилятор и заголовки libcurl — librdkafka 2.12
+включает `curl/curl.h` даже без curl; в Debian/Ubuntu `libcurl4-openssl-dev`, в Arch — `curl`):
+
+```bash
+docker compose up -d postgres kafka simulator
 cargo build --release
-CONTROLLERS_YAML=../scada-gateway/SCADA-gateway/src/main/resources/controllers.yaml \
 SIM_HOST=127.0.0.1 \
 SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5433/scada_db \
 SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094 \
 ./target/release/scada-gateway
 ```
 
-В стеке `scada-gateway` вместо Java-шлюза:
-
-```bash
-cd ../scada-gateway
-docker compose -f docker-compose.yml -f ../SCADA_rust/docker-compose.gateway-rs.yml up -d --build gateway
-```
-
 В стеке монитора (`scada-editor-backend/docker-compose.gateway.yml`) — `build.context` сервиса
-`scada-gateway` на эту папку и том с `controllers.yaml` в `/app/config/controllers.yaml`.
+`scada-gateway` на эту папку и том `config/controllers.yaml` в `/app/config/controllers.yaml`.
+
+## Симулятор и конфигурация станции
+
+- `simulator/` — PLC-симулятор на Python: OPC UA, Modbus TCP и PAC (driver-master в формате
+  ptusa) в одном процессе, проигрывает 5-суточный архив станции BN1_MCA1 (`data/`). Перенесён
+  из `savushkin-dev/scada-gateway` (`plc-simulator`, коммит `76db32c`) и дальше живёт здесь.
+  Тесты: `cd simulator && python -m pytest tests` (Python 3.11).
+- `config/controllers.yaml` — 2517 каналов на трёх контроллерах; согласован с
+  `simulator/config/replay_config.yaml` (одинаковые channelId, типы, адреса и право записи).
+- `scripts/ptusa_emulator.sh <проект ПЛК>` — эмулятор настоящего PAC (прошивка ptusa под ПК)
+  в Docker для сверки протокола.
 
 ## Настройки (env)
 
@@ -91,27 +109,30 @@ docker compose -f docker-compose.yml -f ../SCADA_rust/docker-compose.gateway-rs.
 
 ## Проверено
 
-- 40 юнит-тестов и 6 интеграционных (`cargo test -- --ignored`), clippy без замечаний.
-- Стенд `scada-gateway` с Python-симулятором: 2517 тегов GOOD в `scada.tags`, формат байт-в-байт
+- 40 юнит-тестов, сверка конфигураций шлюза и симулятора, 6 интеграционных
+  (`cargo test -- --ignored`), 40 тестов симулятора (pytest); clippy без замечаний.
+- Стенд с PLC-симулятором: 2517 тегов GOOD в `scada.tags`, формат байт-в-байт
   с Java (типизированные значения, timestamp в epoch-секундах); команды через Kafka — APPLIED
   (OPC UA, PAC), REJECTED_NOT_WRITABLE (датчик, Modbus), REJECTED_UNKNOWN_TAG,
   REJECTED_TYPE_MISMATCH, дубль отброшен; обрыв и восстановление всех трёх контроллеров.
-- Эмулятор настоящего PAC (ptusa 2026.4.2.1, `scada-gateway/tools/ptusa_emulator.sh`):
+- Эмулятор настоящего PAC (ptusa 2026.4.2.1, `scripts/ptusa_emulator.sh`):
   122/172 канала GOOD (50 — каналы, которых нет в реальном проекте ПЛК), запись применяется.
 
 ## Тесты
 
 ```bash
-cargo test                      # 40 юнит-тестов, без внешних систем
+cargo test                      # 40 юнит-тестов + сверка config ↔ simulator, без внешних систем
 cargo test -- --ignored         # интеграционные: нужны симулятор и Kafka
 ```
 
-Интеграционные тесты помечены `#[ignore]` и идут против PLC-симулятора из `scada-gateway`
-(локально — стенд `../scada-gateway/up.sh`):
+Интеграционные тесты помечены `#[ignore]` и идут против PLC-симулятора и Kafka стенда
+(`docker compose up -d`):
 
 - `tests/simulator.rs` — клиенты протоколов: каждый тег `controllers.yaml` читается своим
   протоколом с верным типом (OPC UA, Modbus, PAC); запись по OPC UA и PAC применяется и
   откатывается; RO-узел и несуществующий прибор отклоняются.
+- `tests/config_consistency.rs` (без `#[ignore]`) — `config/controllers.yaml` и конфиг симулятора
+  описывают одни и те же каналы: протокол, тип, адрес, право записи, прибор/поле.
 - `tests/e2e.rs` — собранный шлюз как процесс, проверка глазами монитора на топиках `it-<id>.*`:
   все теги GOOD и контракт тела телеметрии, команды через Kafka со всеми статусами и доходом
   записи до телеметрии, метрики, журнал в БД и REST (при `IT_DATABASE_URL`), остановка по SIGTERM.
@@ -120,13 +141,13 @@ cargo test -- --ignored         # интеграционные: нужны си�
 |---|---|
 | `SIM_HOST` | `127.0.0.1` |
 | `KAFKA_BOOTSTRAP` | `localhost:9094` (внешний listener стенда) |
-| `CONTROLLERS_YAML` | `../scada-gateway/SCADA-gateway/src/main/resources/controllers.yaml` |
+| `CONTROLLERS_YAML` | `config/controllers.yaml` |
 | `IT_DATABASE_URL` | не задан — шлюз в тесте без БД (пустая база: `createdb scada_it`) |
 
 ## CI/CD
 
 `.github/workflows/ci.yml`: на каждый push и PR — `cargo fmt --check`, clippy (`-D warnings`),
-`cargo test`, интеграционные тесты (симулятор из `savushkin-dev/scada-gateway`, Kafka и Postgres
+`cargo test`, pytest симулятора, интеграционные тесты (свой симулятор, Kafka и Postgres
 как service-контейнеры); на push в `main` и теги `vX.Y.Z` — образ `ghcr.io/euzireael/scada_rust`
 (`:latest`/`:vX.Y.Z` + `:<sha>`).
 
@@ -149,4 +170,9 @@ src/
   db.rs          схема, синхронизация с YAML, журнал, история
   http.rs        /actuator/*, /api/*
 migrations/      схема БД (совместима с Flyway-схемой Java-шлюза)
+tests/           интеграционные тесты (simulator.rs — протоколы, e2e.rs — шлюз целиком)
+config/          controllers.yaml — каналы станции
+simulator/       PLC-симулятор (Python) + его тесты
+scripts/         эмулятор настоящего PAC (ptusa)
+docker-compose.yml   стенд целиком
 ```

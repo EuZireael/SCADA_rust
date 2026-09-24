@@ -1,0 +1,951 @@
+opcua:
+  servers:
+  - id: bn1-mca1-001
+    name: BN1_MCA1 Archive Replay
+    endpoint: opc.tcp://127.0.0.1:4840
+    security: NONE
+    enabled: true
+    tags:
+    - name: 2A010000
+      nodeId: ns=2;s=2A010000
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010001
+      nodeId: ns=2;s=2A010001
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010002
+      nodeId: ns=2;s=2A010002
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010003
+      nodeId: ns=2;s=2A010003
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010004
+      nodeId: ns=2;s=2A010004
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010005
+      nodeId: ns=2;s=2A010005
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010006
+      nodeId: ns=2;s=2A010006
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010008
+      nodeId: ns=2;s=2A010008
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010009
+      nodeId: ns=2;s=2A010009
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01000A
+      nodeId: ns=2;s=2A01000A
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01000B
+      nodeId: ns=2;s=2A01000B
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01000C
+      nodeId: ns=2;s=2A01000C
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01000D
+      nodeId: ns=2;s=2A01000D
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01000E
+      nodeId: ns=2;s=2A01000E
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01000F
+      nodeId: ns=2;s=2A01000F
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010010
+      nodeId: ns=2;s=2A010010
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010011
+      nodeId: ns=2;s=2A010011
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010012
+      nodeId: ns=2;s=2A010012
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010013
+      nodeId: ns=2;s=2A010013
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010014
+      nodeId: ns=2;s=2A010014
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010015
+      nodeId: ns=2;s=2A010015
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010016
+      nodeId: ns=2;s=2A010016
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010017
+      nodeId: ns=2;s=2A010017
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010018
+      nodeId: ns=2;s=2A010018
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01001A
+      nodeId: ns=2;s=2A01001A
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01001B
+      nodeId: ns=2;s=2A01001B
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01001C
+      nodeId: ns=2;s=2A01001C
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01001D
+      nodeId: ns=2;s=2A01001D
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01001F
+      nodeId: ns=2;s=2A01001F
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010020
+      nodeId: ns=2;s=2A010020
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010021
+      nodeId: ns=2;s=2A010021
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010022
+      nodeId: ns=2;s=2A010022
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010023
+      nodeId: ns=2;s=2A010023
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010024
+      nodeId: ns=2;s=2A010024
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010025
+      nodeId: ns=2;s=2A010025
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010026
+      nodeId: ns=2;s=2A010026
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010027
+      nodeId: ns=2;s=2A010027
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010028
+      nodeId: ns=2;s=2A010028
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010029
+      nodeId: ns=2;s=2A010029
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01002B
+      nodeId: ns=2;s=2A01002B
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010032
+      nodeId: ns=2;s=2A010032
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010033
+      nodeId: ns=2;s=2A010033
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010034
+      nodeId: ns=2;s=2A010034
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010036
+      nodeId: ns=2;s=2A010036
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010037
+      nodeId: ns=2;s=2A010037
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010038
+      nodeId: ns=2;s=2A010038
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010039
+      nodeId: ns=2;s=2A010039
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01003A
+      nodeId: ns=2;s=2A01003A
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01003B
+      nodeId: ns=2;s=2A01003B
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01003C
+      nodeId: ns=2;s=2A01003C
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01003D
+      nodeId: ns=2;s=2A01003D
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A01003F
+      nodeId: ns=2;s=2A01003F
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A010040
+      nodeId: ns=2;s=2A010040
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A050000
+      nodeId: ns=2;s=2A050000
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      unit: '%'
+      minValue: 2.752
+      maxValue: 93.868
+    - name: 2A050001
+      nodeId: ns=2;s=2A050001
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      unit: '%'
+      minValue: 3.003
+      maxValue: 93.588
+    - name: 2A050002
+      nodeId: ns=2;s=2A050002
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      unit: '%'
+      minValue: 2.715
+      maxValue: 62.565
+    - name: 2A0A0006
+      nodeId: ns=2;s=2A0A0006
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      minValue: 0.059
+      maxValue: 1.121
+    - name: 2A0A0007
+      nodeId: ns=2;s=2A0A0007
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: 300.25
+      maxValue: 5704.75
+    - name: 2A0A0009
+      nodeId: ns=2;s=2A0A0009
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: 0.55
+      maxValue: 10.45
+    - name: 2A0D0000
+      nodeId: ns=2;s=2A0D0000
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A0D0001
+      nodeId: ns=2;s=2A0D0001
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: -94.95
+      maxValue: -4.05
+    - name: 2A0D0002
+      nodeId: ns=2;s=2A0D0002
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A130000
+      nodeId: ns=2;s=2A130000
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      unit: '%'
+      minValue: 5.0
+      maxValue: 95.0
+    - name: 2A130001
+      nodeId: ns=2;s=2A130001
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      unit: '%'
+      minValue: 5.0
+      maxValue: 95.0
+    - name: 2A130002
+      nodeId: ns=2;s=2A130002
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      unit: '%'
+      minValue: 5.0
+      maxValue: 95.0
+    - name: 2A150000
+      nodeId: ns=2;s=2A150000
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A150001
+      nodeId: ns=2;s=2A150001
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A150002
+      nodeId: ns=2;s=2A150002
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A150003
+      nodeId: ns=2;s=2A150003
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A150004
+      nodeId: ns=2;s=2A150004
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A150005
+      nodeId: ns=2;s=2A150005
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A150006
+      nodeId: ns=2;s=2A150006
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A150007
+      nodeId: ns=2;s=2A150007
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A150008
+      nodeId: ns=2;s=2A150008
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A15000E
+      nodeId: ns=2;s=2A15000E
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A1D0000
+      nodeId: ns=2;s=2A1D0000
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      minValue: 14.59
+      maxValue: 95.41
+    - name: 2A1D0001
+      nodeId: ns=2;s=2A1D0001
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      minValue: 12.375
+      maxValue: 78.525
+    - name: 2A1D0002
+      nodeId: ns=2;s=2A1D0002
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      minValue: -2951.585
+      maxValue: 2900.485
+    - name: 2A1D0003
+      nodeId: ns=2;s=2A1D0003
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      minValue: -2764.7
+      maxValue: 2764.9
+    - name: 2A1D0004
+      nodeId: ns=2;s=2A1D0004
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      minValue: 12.945
+      maxValue: 60.555
+    - name: 2A1D0005
+      nodeId: ns=2;s=2A1D0005
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      minValue: 12.845
+      maxValue: 58.655
+    - name: 2A1F0000
+      nodeId: ns=2;s=2A1F0000
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A1F0001
+      nodeId: ns=2;s=2A1F0001
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A1F0002
+      nodeId: ns=2;s=2A1F0002
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A220000
+      nodeId: ns=2;s=2A220000
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: -18.0
+      maxValue: 0.0
+    - name: 2A220001
+      nodeId: ns=2;s=2A220001
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: 27.75
+      maxValue: 527.25
+    - name: 2A310000
+      nodeId: ns=2;s=2A310000
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: -38.9
+      maxValue: -1.1
+    - name: 2A310001
+      nodeId: ns=2;s=2A310001
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: 27.75
+      maxValue: 527.25
+    - name: 2A320000
+      nodeId: ns=2;s=2A320000
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: -16.1
+      maxValue: 0.1
+    - name: 2A320001
+      nodeId: ns=2;s=2A320001
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: 27.75
+      maxValue: 527.25
+    - name: 2A360006
+      nodeId: ns=2;s=2A360006
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      minValue: 0.058
+      maxValue: 1.111
+    - name: 2A360007
+      nodeId: ns=2;s=2A360007
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: 320.9
+      maxValue: 6097.1
+    - name: 2A360009
+      nodeId: ns=2;s=2A360009
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: 0.8
+      maxValue: 15.2
+    - name: 2A370006
+      nodeId: ns=2;s=2A370006
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      minValue: 0.05
+      maxValue: 0.95
+    - name: 2A370007
+      nodeId: ns=2;s=2A370007
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: 142.35
+      maxValue: 2704.65
+    - name: 2A370009
+      nodeId: ns=2;s=2A370009
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A3B0000
+      nodeId: ns=2;s=2A3B0000
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      unit: Hz
+      minValue: 3.01
+      maxValue: 57.18
+    - name: 2A3B0001
+      nodeId: ns=2;s=2A3B0001
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      unit: Hz
+      minValue: 3.405
+      maxValue: 64.695
+    - name: 2A3B0002
+      nodeId: ns=2;s=2A3B0002
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      unit: Hz
+      minValue: 1.559
+      maxValue: 29.621
+    - name: 2A4D0000
+      nodeId: ns=2;s=2A4D0000
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: 1375.0
+      maxValue: 7585.0
+    - name: 2A4D0001
+      nodeId: ns=2;s=2A4D0001
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: 4919.5
+      maxValue: 7790.5
+    - name: 2A4D0002
+      nodeId: ns=2;s=2A4D0002
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: 334.0
+      maxValue: 5986.0
+    - name: 2A510000
+      nodeId: ns=2;s=2A510000
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      minValue: 2.104
+      maxValue: 39.805
+    - name: 2A510001
+      nodeId: ns=2;s=2A510001
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      minValue: 50.01
+      maxValue: 950.0
+    - name: 2A510002
+      nodeId: ns=2;s=2A510002
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      minValue: 50.019
+      maxValue: 950.001
+    - name: 2A580009
+      nodeId: ns=2;s=2A580009
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A58000A
+      nodeId: ns=2;s=2A58000A
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A58000B
+      nodeId: ns=2;s=2A58000B
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A58000C
+      nodeId: ns=2;s=2A58000C
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A58000D
+      nodeId: ns=2;s=2A58000D
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A58000E
+      nodeId: ns=2;s=2A58000E
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A580010
+      nodeId: ns=2;s=2A580010
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A580011
+      nodeId: ns=2;s=2A580011
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A580012
+      nodeId: ns=2;s=2A580012
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A580013
+      nodeId: ns=2;s=2A580013
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A58002A
+      nodeId: ns=2;s=2A58002A
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A58002B
+      nodeId: ns=2;s=2A58002B
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A58002D
+      nodeId: ns=2;s=2A58002D
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A58002E
+      nodeId: ns=2;s=2A58002E
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A58002F
+      nodeId: ns=2;s=2A58002F
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A580030
+      nodeId: ns=2;s=2A580030
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A580031
+      nodeId: ns=2;s=2A580031
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A580032
+      nodeId: ns=2;s=2A580032
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A580034
+      nodeId: ns=2;s=2A580034
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A580035
+      nodeId: ns=2;s=2A580035
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A580036
+      nodeId: ns=2;s=2A580036
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A580037
+      nodeId: ns=2;s=2A580037
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A580038
+      nodeId: ns=2;s=2A580038
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A58003C
+      nodeId: ns=2;s=2A58003C
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A580049
+      nodeId: ns=2;s=2A580049
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A58004C
+      nodeId: ns=2;s=2A58004C
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A58004D
+      nodeId: ns=2;s=2A58004D
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A58004E
+      nodeId: ns=2;s=2A58004E
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A58004F
+      nodeId: ns=2;s=2A58004F
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A580059
+      nodeId: ns=2;s=2A580059
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A580062
+      nodeId: ns=2;s=2A580062
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A580066
+      nodeId: ns=2;s=2A580066
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B0009
+      nodeId: ns=2;s=2A5B0009
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B000A
+      nodeId: ns=2;s=2A5B000A
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B000B
+      nodeId: ns=2;s=2A5B000B
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B000C
+      nodeId: ns=2;s=2A5B000C
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B0029
+      nodeId: ns=2;s=2A5B0029
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B002A
+      nodeId: ns=2;s=2A5B002A
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B002B
+      nodeId: ns=2;s=2A5B002B
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B002C
+      nodeId: ns=2;s=2A5B002C
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B002D
+      nodeId: ns=2;s=2A5B002D
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B002E
+      nodeId: ns=2;s=2A5B002E
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B0038
+      nodeId: ns=2;s=2A5B0038
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B0039
+      nodeId: ns=2;s=2A5B0039
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B003A
+      nodeId: ns=2;s=2A5B003A
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B0046
+      nodeId: ns=2;s=2A5B0046
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B0047
+      nodeId: ns=2;s=2A5B0047
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B0048
+      nodeId: ns=2;s=2A5B0048
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B004A
+      nodeId: ns=2;s=2A5B004A
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B0051
+      nodeId: ns=2;s=2A5B0051
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B0052
+      nodeId: ns=2;s=2A5B0052
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B0053
+      nodeId: ns=2;s=2A5B0053
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B0056
+      nodeId: ns=2;s=2A5B0056
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B005A
+      nodeId: ns=2;s=2A5B005A
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B0065
+      nodeId: ns=2;s=2A5B0065
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B0066
+      nodeId: ns=2;s=2A5B0066
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B006F
+      nodeId: ns=2;s=2A5B006F
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B0072
+      nodeId: ns=2;s=2A5B0072
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A5B0075
+      nodeId: ns=2;s=2A5B0075
+      dataType: BOOLEAN
+      pollingRate: 1000
+      enabled: true
+    - name: 2A630000
+      nodeId: ns=2;s=2A630000
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      minValue: 0.982
+      maxValue: 31.087
+    - name: 2A630001
+      nodeId: ns=2;s=2A630001
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      minValue: -0.451
+      maxValue: 5.651
+    - name: 2A630002
+      nodeId: ns=2;s=2A630002
+      dataType: FLOAT
+      pollingRate: 1000
+      enabled: true
+      minValue: -0.436
+      maxValue: 3.785
+    - name: 2A750006
+      nodeId: ns=2;s=2A750006
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: -0.9
+      maxValue: 0.9
+    - name: 2A750007
+      nodeId: ns=2;s=2A750007
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: -0.9
+      maxValue: 0.9
+    - name: 2A750008
+      nodeId: ns=2;s=2A750008
+      dataType: INT
+      pollingRate: 1000
+      enabled: true
+      minValue: -0.9
+      maxValue: 0.9

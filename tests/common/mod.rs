@@ -1,8 +1,8 @@
 //! Общее для интеграционных тестов: где симулятор, какой controllers.yaml, проверка типов.
 //!
-//! Окружение (всё с умолчаниями под локальный стенд `scada-gateway/up.sh`):
+//! Окружение (всё с умолчаниями под стенд репозитория `docker compose up -d`):
 //!   SIM_HOST          — хост симулятора (127.0.0.1)
-//!   CONTROLLERS_YAML  — конфиг шлюза (../scada-gateway/SCADA-gateway/src/main/resources/controllers.yaml)
+//!   CONTROLLERS_YAML  — конфиг шлюза (config/controllers.yaml репозитория)
 //!   KAFKA_BOOTSTRAP   — брокер для сквозных тестов (localhost:9094 — внешний listener стенда)
 //!   IT_DATABASE_URL   — если задан (jdbc:postgresql://…), сквозной тест гоняет шлюз с БД
 #![allow(dead_code)]
@@ -24,10 +24,9 @@ pub fn kafka_bootstrap() -> String {
 }
 
 pub fn controllers_path() -> PathBuf {
-    std::env::var("CONTROLLERS_YAML").map(PathBuf::from).unwrap_or_else(|_| {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../scada-gateway/SCADA-gateway/src/main/resources/controllers.yaml")
-    })
+    std::env::var("CONTROLLERS_YAML")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/controllers.yaml"))
 }
 
 /// Контроллеры из YAML с endpoint'ами на симулятор (только включённые теги).

@@ -42,11 +42,29 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+  # Python-тесты PLC-симулятора (simulator/): реплей архива, регистры Modbus, PAC-сервер.
+  simulator:
+    name: Simulator tests (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: simulator
+    steps:
+      - uses: actions/checkout@v7
+      # Python 3.11: asyncua 1.1.8 на 3.14 не работает (баг клиента).
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: simulator/requirements.txt
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q tests
+
   # Интеграционные тесты (#[ignore] в обычном cargo test): клиенты протоколов и шлюз
-  # целиком против PLC-симулятора из scada-gateway, Kafka и Postgres.
+  # целиком против своего PLC-симулятора (simulator/), Kafka и Postgres.
   integration:
     name: Integration tests (simulator + Kafka + Postgres)
-    needs: check
+    needs: [check, simulator]
     runs-on: ubuntu-latest
     services:
       kafka:
@@ -65,26 +83,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Симулятор и controllers.yaml — из репозитория Java-шлюза (там же их источник истины).
-      - name: Checkout scada-gateway (simulator + controllers.yaml)
-        uses: actions/checkout@v7
-        with:
-          repository: savushkin-dev/scada-gateway
-          path: scada-gateway
-
       - name: Install native build deps
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libcurl4-openssl-dev
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      # Python 3.11: asyncua 1.1.8 симулятора на 3.14 не работает (баг клиента).
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
+          cache: pip
+          cache-dependency-path: simulator/requirements.txt
 
       - name: Start PLC simulator
-        working-directory: scada-gateway/plc-simulator
+        working-directory: simulator
         run: |
           pip install -q -r requirements.txt
           OPCUA_ENDPOINT=opc.tcp://127.0.0.1:4840 nohup python simulator.py config/replay_config.yaml > "$RUNNER_TEMP/simulator.log" 2>&1 &
@@ -98,7 +110,6 @@ jobs:
         env:
           SIM_HOST: 127.0.0.1
           KAFKA_BOOTSTRAP: localhost:9092
-          CONTROLLERS_YAML: ${{ github.workspace }}/scada-gateway/SCADA-gateway/src/main/resources/controllers.yaml
           IT_DATABASE_URL: jdbc:postgresql://localhost:5432/scada_it
         run: cargo test --locked -- --ignored
 

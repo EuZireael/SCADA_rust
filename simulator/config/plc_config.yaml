@@ -1,0 +1,222 @@
+plc:
+  id: "PLC-SIM-001"
+  name: "Unified PLC Simulator"
+  endpoint: "opc.tcp://0.0.0.0:4841"
+  update_rate: 0.5
+
+  # Настройки симуляции
+  simulation:
+    enable_noise: true
+    noise_level: 0.02
+    enable_drift: true
+    drift_rate: 0.001
+
+  # Data Blocks (как в реальном PLC)
+  data_blocks:
+    # ============================================
+    # PHOENIX CONTACT PLC (OPC UA)
+    # ============================================
+    - db_number: 1
+      name: "PhoenixContact_Motor"
+      tags:
+        - name: "Motor Speed"
+          address: "DB1.Speed"
+          type: "int"
+          protocol: "opcua"
+          initial: 1500
+          min: 0
+          max: 3000
+          unit: "rpm"
+          access: "RW"
+          generator: "sine"
+          generator_params:
+            amplitude: 500
+            period: 4.0
+
+        - name: "Motor Current"
+          address: "DB1.Current"
+          type: "float"
+          protocol: "opcua"
+          initial: 12.5
+          min: 0
+          max: 50
+          unit: "A"
+          access: "RO"
+          generator: "sine"
+          generator_params:
+            amplitude: 5
+            period: 3.0
+
+        - name: "Motor Temperature"
+          address: "DB1.Temperature"
+          type: "float"
+          protocol: "opcua"
+          initial: 45.0
+          min: 20
+          max: 100
+          unit: "°C"
+          access: "RO"
+          generator: "sine"
+          generator_params:
+            amplitude: 15
+            period: 5.0
+
+        - name: "Motor Running"
+          address: "DB1.Running"
+          type: "bool"
+          protocol: "opcua"
+          initial: true
+          access: "RW"
+          generator: "pulse"
+          generator_params:
+            period: 8.0
+            duty_cycle: 0.7
+            on_value: true
+            off_value: false
+
+    - db_number: 2
+      name: "PhoenixContact_Pump"
+      tags:
+        - name: "Pump Pressure"
+          address: "DB2.Pressure"
+          type: "float"
+          protocol: "opcua"
+          initial: 2.5
+          min: 0
+          max: 10
+          unit: "bar"
+          access: "RO"
+          generator: "sine"
+          generator_params:
+            amplitude: 1.5
+            period: 4.0
+
+        - name: "Pump Flow"
+          address: "DB2.Flow"
+          type: "float"
+          protocol: "opcua"
+          initial: 100.0
+          min: 0
+          max: 200
+          unit: "m³/h"
+          access: "RO"
+          generator: "sine"
+          generator_params:
+            amplitude: 30
+            period: 3.5
+
+        - name: "Pump Mode"
+          address: "DB2.Mode"
+          type: "int"
+          protocol: "opcua"
+          initial: 1
+          min: 0
+          max: 3
+          unit: ""
+          access: "RW"
+          generator: "random_walk"
+          generator_params:
+            step: 0.1
+
+    - db_number: 3
+      name: "PhoenixContact_Tank"
+      tags:
+        - name: "Tank Level"
+          address: "DB3.Level"
+          type: "float"
+          protocol: "opcua"
+          initial: 75.0
+          min: 0
+          max: 100
+          unit: "%"
+          access: "RO"
+          generator: "sine"
+          generator_params:
+            amplitude: 20
+            period: 6.0
+
+        - name: "Inlet Valve"
+          address: "DB3.InletValve"
+          type: "bool"
+          protocol: "opcua"
+          initial: true
+          access: "RW"
+          generator: "pulse"
+          generator_params:
+            period: 10.0
+            duty_cycle: 0.6
+            on_value: true
+            off_value: false
+
+        - name: "Outlet Valve"
+          address: "DB3.OutletValve"
+          type: "bool"
+          protocol: "opcua"
+          initial: false
+          access: "RW"
+          generator: "pulse"
+          generator_params:
+            period: 12.0
+            duty_cycle: 0.4
+            on_value: true
+            off_value: false
+
+    # ============================================
+    # WAGO PLC (MODBUS TCP)
+    # ============================================
+    - db_number: 100
+      name: "WAGO_Modbus"
+      tags:
+        - name: "Pump Pressure (MB)"
+          address: "MB.Pressure"
+          type: "float"
+          protocol: "modbus"
+          modbus_address: 0
+          modbus_type: "float32"
+          initial: 2.5
+          min: 0
+          max: 10
+          unit: "bar"
+          access: "RO"
+          noise_enabled: true
+          generator: "sine"
+          generator_params:
+            amplitude: 1.5
+            period: 4.0
+
+        - name: "Pump Flow (MB)"
+          address: "MB.Flow"
+          type: "float"
+          protocol: "modbus"
+          modbus_address: 2
+          modbus_type: "float32"
+          initial: 100.0
+          min: 0
+          max: 200
+          unit: "m³/h"
+          access: "RO"
+          noise_enabled: true
+          generator: "sine"
+          generator_params:
+            amplitude: 30
+            period: 3.5
+
+        - name: "Tank Level (MB)"
+          address: "MB.Level"
+          type: "float"
+          protocol: "modbus"
+          modbus_address: 4
+          modbus_type: "float32"
+          initial: 75.0
+          min: 0
+          max: 100
+          unit: "%"
+          access: "RO"
+          noise_enabled: true
+          generator: "sine"
+          generator_params:
+            amplitude: 20
+            period: 6.0
+
+# Modbus порт (вне секции plc)
+modbus_port: 5021

@@ -1,0 +1,11 @@
+__pycache__/
+**/__pycache__/
+*.pyc
+.git/
+.gitignore
+*.md
+# Host-only виртуальные окружения — в образе python:3.11-slim не нужны (281MB).
+venv/
+venv312/
+venv-sim312/
+# data/archive_replay.pkl.gz НУЖЕН для replay — НЕ исключаем.

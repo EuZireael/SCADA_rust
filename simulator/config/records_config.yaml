@@ -1,0 +1,3966 @@
+# ============================================================================
+# Симулятор = ЧИСТЫЙ КОНТРОЛЛЕР. На каждый прибор — ОДИН OPC UA string-узел
+# REC:<key>, значение = сырая запись устройства как в ptusa_main:
+#   ИМЯ={ПОЛЕ=знач, ПОЛЕ=знач, ...}   (device::save_device)
+# Значения полей берутся из архива BN1_MCA1 по cid (реальное время, loop).
+# Расщепление записи на каналы и привязку к базе делает ШЛЮЗ (как реальный драйвер).
+# Приборов: 368.
+# ============================================================================
+plc:
+  id: BN1-MCA1
+  name: BN1_MCA1 (Барановичи-1) Raw Controller
+  endpoint: opc.tcp://0.0.0.0:4840
+  update_rate: 0.5
+
+# Приборы: каждый отдаётся одной записью ИМЯ={поля}.
+devices:
+  - key: "AI::AI2"
+    name: "AI2"
+    dev_type: "AI"
+    fields:
+      - {field: "ST", cid: 2A5B0072, dtype: bool}
+      - {field: "M", cid: 2A750007, dtype: float}
+      - {field: "V", cid: 2A0A0009, dtype: float}
+  - key: "AI::AI3"
+    name: "AI3"
+    dev_type: "AI"
+    fields:
+      - {field: "ST", cid: 2A5B0075, dtype: bool}
+      - {field: "M", cid: 2A750008, dtype: float}
+      - {field: "V", cid: 2A0D0001, dtype: float}
+  - key: "AI::LINE1AI11"
+    name: "LINE1AI11"
+    dev_type: "AI"
+    fields:
+      - {field: "ST", cid: 2A010001, dtype: bool}
+      - {field: "M", cid: 2A050001, dtype: float}
+      - {field: "V", cid: 2A130001, dtype: float}
+  - key: "AI::LINE1AI21"
+    name: "LINE1AI21"
+    dev_type: "AI"
+    fields:
+      - {field: "ST", cid: 2A010004, dtype: bool}
+      - {field: "M", cid: 2A0A0007, dtype: float}
+      - {field: "V", cid: 2A1D0001, dtype: float}
+  - key: "AI::LINE3AI1"
+    name: "LINE3AI1"
+    dev_type: "AI"
+    fields:
+      - {field: "ST", cid: 2A010000, dtype: bool}
+      - {field: "M", cid: 2A050000, dtype: float}
+      - {field: "V", cid: 2A130000, dtype: float}
+  - key: "AI::LINE3AI202"
+    name: "LINE3AI202"
+    dev_type: "AI"
+    fields:
+      - {field: "ST", cid: 2A010002, dtype: bool}
+      - {field: "M", cid: 2A050002, dtype: float}
+      - {field: "V", cid: 2A130002, dtype: float}
+  - key: "AI::LINE3AI203"
+    name: "LINE3AI203"
+    dev_type: "AI"
+    fields:
+      - {field: "ST", cid: 2A010003, dtype: bool}
+      - {field: "M", cid: 2A0A0006, dtype: float}
+      - {field: "V", cid: 2A1D0000, dtype: float}
+  - key: "AO::LINE1AO11"
+    name: "LINE1AO11"
+    dev_type: "AO"
+    fields:
+      - {field: "ST", cid: 2A010005, dtype: bool}
+      - {field: "M", cid: 2A1D0002, dtype: float}
+      - {field: "V", cid: 2A630002, dtype: float}
+  - key: "DI::DI1"
+    name: "DI1"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A58002B, dtype: bool}
+      - {field: "M", cid: 2A0D0001, dtype: float}
+  - key: "DI::LINE1DI1101"
+    name: "LINE1DI1101"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A150003, dtype: bool}
+      - {field: "M", cid: 2A370007, dtype: float}
+  - key: "DI::LINE1DI1102"
+    name: "LINE1DI1102"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A150004, dtype: bool}
+      - {field: "M", cid: 2A3B0000, dtype: float}
+  - key: "DI::LINE1DI1103"
+    name: "LINE1DI1103"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A150005, dtype: bool}
+      - {field: "M", cid: 2A3B0001, dtype: float}
+  - key: "DI::LINE1DI1104"
+    name: "LINE1DI1104"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A150006, dtype: bool}
+      - {field: "M", cid: 2A3B0002, dtype: float}
+  - key: "DI::LINE1DI1105"
+    name: "LINE1DI1105"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A150007, dtype: bool}
+      - {field: "M", cid: 2A4D0000, dtype: float}
+  - key: "DI::LINE1DI1106"
+    name: "LINE1DI1106"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A150008, dtype: bool}
+      - {field: "M", cid: 2A4D0001, dtype: float}
+  - key: "DI::LINE1DI1107"
+    name: "LINE1DI1107"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A15000E, dtype: bool}
+      - {field: "M", cid: 2A4D0002, dtype: float}
+  - key: "DI::LINE1DI1108"
+    name: "LINE1DI1108"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A1F0000, dtype: bool}
+      - {field: "M", cid: 2A510000, dtype: float}
+  - key: "DI::LINE1DI1109"
+    name: "LINE1DI1109"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A1F0001, dtype: bool}
+      - {field: "M", cid: 2A510001, dtype: float}
+  - key: "DI::LINE1DI1110"
+    name: "LINE1DI1110"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A1F0002, dtype: bool}
+      - {field: "M", cid: 2A510002, dtype: float}
+  - key: "DI::LINE1DI1111"
+    name: "LINE1DI1111"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A370009, dtype: bool}
+      - {field: "M", cid: 2A630000, dtype: float}
+  - key: "DI::LINE1DI1118"
+    name: "LINE1DI1118"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A580009, dtype: bool}
+      - {field: "M", cid: 2A630001, dtype: float}
+  - key: "DI::LINE1DI1119"
+    name: "LINE1DI1119"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A58000A, dtype: bool}
+      - {field: "M", cid: 2A630002, dtype: float}
+  - key: "DI::LINE2DI11"
+    name: "LINE2DI11"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A580037, dtype: bool}
+      - {field: "M", cid: 2A220000, dtype: float}
+  - key: "DI::LINE2DI1111"
+    name: "LINE2DI1111"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A58000B, dtype: bool}
+      - {field: "M", cid: 2A750006, dtype: float}
+  - key: "DI::LINE2DI12"
+    name: "LINE2DI12"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A580038, dtype: bool}
+      - {field: "M", cid: 2A220001, dtype: float}
+  - key: "DI::LINE2DI1201"
+    name: "LINE2DI1201"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A58000C, dtype: bool}
+      - {field: "M", cid: 2A750007, dtype: float}
+  - key: "DI::LINE2DI1202"
+    name: "LINE2DI1202"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A58000D, dtype: bool}
+      - {field: "M", cid: 2A750008, dtype: float}
+  - key: "DI::LINE2DI1203"
+    name: "LINE2DI1203"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A58000E, dtype: bool}
+      - {field: "M", cid: 2A050000, dtype: float}
+  - key: "DI::LINE2DI1204"
+    name: "LINE2DI1204"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A580010, dtype: bool}
+      - {field: "M", cid: 2A050001, dtype: float}
+  - key: "DI::LINE2DI1205"
+    name: "LINE2DI1205"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A580011, dtype: bool}
+      - {field: "M", cid: 2A050002, dtype: float}
+  - key: "DI::LINE2DI1211"
+    name: "LINE2DI1211"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A580012, dtype: bool}
+      - {field: "M", cid: 2A0A0006, dtype: float}
+  - key: "DI::LINE2DI1218"
+    name: "LINE2DI1218"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A580013, dtype: bool}
+      - {field: "M", cid: 2A0A0007, dtype: float}
+  - key: "DI::LINE2DI1219"
+    name: "LINE2DI1219"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A58002A, dtype: bool}
+      - {field: "M", cid: 2A0A0009, dtype: float}
+  - key: "DI::LINE2DI13"
+    name: "LINE2DI13"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A58003C, dtype: bool}
+      - {field: "M", cid: 2A310000, dtype: float}
+  - key: "DI::LINE2DI14"
+    name: "LINE2DI14"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A580049, dtype: bool}
+      - {field: "M", cid: 2A310001, dtype: float}
+  - key: "DI::LINE2DI15"
+    name: "LINE2DI15"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A58004C, dtype: bool}
+      - {field: "M", cid: 2A320000, dtype: float}
+  - key: "DI::LINE2DI16"
+    name: "LINE2DI16"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A58004D, dtype: bool}
+      - {field: "M", cid: 2A320001, dtype: float}
+  - key: "DI::LINE2DI17"
+    name: "LINE2DI17"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A58004E, dtype: bool}
+      - {field: "M", cid: 2A360006, dtype: float}
+  - key: "DI::LINE2DI18"
+    name: "LINE2DI18"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A58004F, dtype: bool}
+      - {field: "M", cid: 2A360007, dtype: float}
+  - key: "DI::LINE2DI3221"
+    name: "LINE2DI3221"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A580030, dtype: bool}
+      - {field: "M", cid: 2A1D0000, dtype: float}
+  - key: "DI::LINE2DI3311"
+    name: "LINE2DI3311"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A58002E, dtype: bool}
+      - {field: "M", cid: 2A130001, dtype: float}
+  - key: "DI::LINE2DI3321"
+    name: "LINE2DI3321"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A58002F, dtype: bool}
+      - {field: "M", cid: 2A130002, dtype: float}
+  - key: "DI::LINE2DI501"
+    name: "LINE2DI501"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A580031, dtype: bool}
+      - {field: "M", cid: 2A1D0001, dtype: float}
+  - key: "DI::LINE2DI502"
+    name: "LINE2DI502"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A580032, dtype: bool}
+      - {field: "M", cid: 2A1D0002, dtype: float}
+  - key: "DI::LINE2DI511"
+    name: "LINE2DI511"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A580034, dtype: bool}
+      - {field: "M", cid: 2A1D0003, dtype: float}
+  - key: "DI::LINE2DI512"
+    name: "LINE2DI512"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A580035, dtype: bool}
+      - {field: "M", cid: 2A1D0004, dtype: float}
+  - key: "DI::LINE2DI513"
+    name: "LINE2DI513"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A580036, dtype: bool}
+      - {field: "M", cid: 2A1D0005, dtype: float}
+  - key: "DI::NTRZDI1"
+    name: "NTRZDI1"
+    dev_type: "DI"
+    fields:
+      - {field: "ST", cid: 2A58002D, dtype: bool}
+      - {field: "M", cid: 2A130000, dtype: float}
+  - key: "DO::DO1"
+    name: "DO1"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B002B, dtype: bool}
+      - {field: "M", cid: 2A630000, dtype: float}
+  - key: "DO::LINE1DO1101"
+    name: "LINE1DO1101"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A130000, dtype: float}
+      - {field: "M", cid: 2A360009, dtype: float}
+  - key: "DO::LINE1DO1102"
+    name: "LINE1DO1102"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A130001, dtype: float}
+      - {field: "M", cid: 2A370006, dtype: float}
+  - key: "DO::LINE1DO1103"
+    name: "LINE1DO1103"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A130002, dtype: float}
+      - {field: "M", cid: 2A370007, dtype: float}
+  - key: "DO::LINE1DO1104"
+    name: "LINE1DO1104"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A580059, dtype: bool}
+      - {field: "M", cid: 2A3B0000, dtype: float}
+  - key: "DO::LINE2DO11"
+    name: "LINE2DO11"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B0052, dtype: bool}
+      - {field: "M", cid: 2A0D0001, dtype: float}
+  - key: "DO::LINE2DO1111"
+    name: "LINE2DO1111"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A580062, dtype: bool}
+      - {field: "M", cid: 2A3B0001, dtype: float}
+  - key: "DO::LINE2DO1112"
+    name: "LINE2DO1112"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A580066, dtype: bool}
+      - {field: "M", cid: 2A3B0002, dtype: float}
+  - key: "DO::LINE2DO12"
+    name: "LINE2DO12"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B0053, dtype: bool}
+      - {field: "M", cid: 2A130000, dtype: float}
+  - key: "DO::LINE2DO1201"
+    name: "LINE2DO1201"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B0009, dtype: bool}
+      - {field: "M", cid: 2A4D0000, dtype: float}
+  - key: "DO::LINE2DO1202"
+    name: "LINE2DO1202"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B000A, dtype: bool}
+      - {field: "M", cid: 2A4D0001, dtype: float}
+  - key: "DO::LINE2DO1203"
+    name: "LINE2DO1203"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B000B, dtype: bool}
+      - {field: "M", cid: 2A4D0002, dtype: float}
+  - key: "DO::LINE2DO1204"
+    name: "LINE2DO1204"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B000C, dtype: bool}
+      - {field: "M", cid: 2A510000, dtype: float}
+  - key: "DO::LINE2DO1211"
+    name: "LINE2DO1211"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B0029, dtype: bool}
+      - {field: "M", cid: 2A510001, dtype: float}
+  - key: "DO::LINE2DO1212"
+    name: "LINE2DO1212"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B002A, dtype: bool}
+      - {field: "M", cid: 2A510002, dtype: float}
+  - key: "DO::LINE2DO13"
+    name: "LINE2DO13"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B0056, dtype: bool}
+      - {field: "M", cid: 2A130001, dtype: float}
+  - key: "DO::LINE2DO14"
+    name: "LINE2DO14"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B005A, dtype: bool}
+      - {field: "M", cid: 2A130002, dtype: float}
+  - key: "DO::LINE2DO15"
+    name: "LINE2DO15"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B0065, dtype: bool}
+      - {field: "M", cid: 2A1D0000, dtype: float}
+  - key: "DO::LINE2DO3221"
+    name: "LINE2DO3221"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B0039, dtype: bool}
+      - {field: "M", cid: 2A750008, dtype: float}
+  - key: "DO::LINE2DO3311"
+    name: "LINE2DO3311"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B002C, dtype: bool}
+      - {field: "M", cid: 2A630001, dtype: float}
+  - key: "DO::LINE2DO3312"
+    name: "LINE2DO3312"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B002D, dtype: bool}
+      - {field: "M", cid: 2A630002, dtype: float}
+  - key: "DO::LINE2DO3321"
+    name: "LINE2DO3321"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B002E, dtype: bool}
+      - {field: "M", cid: 2A750006, dtype: float}
+  - key: "DO::LINE2DO3322"
+    name: "LINE2DO3322"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B0038, dtype: bool}
+      - {field: "M", cid: 2A750007, dtype: float}
+  - key: "DO::LINE2DO501"
+    name: "LINE2DO501"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B003A, dtype: bool}
+      - {field: "M", cid: 2A050000, dtype: float}
+  - key: "DO::LINE2DO502"
+    name: "LINE2DO502"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B0046, dtype: bool}
+      - {field: "M", cid: 2A050001, dtype: float}
+  - key: "DO::LINE2DO503"
+    name: "LINE2DO503"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B0047, dtype: bool}
+      - {field: "M", cid: 2A050002, dtype: float}
+  - key: "DO::LINE2DO504"
+    name: "LINE2DO504"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B0048, dtype: bool}
+      - {field: "M", cid: 2A0A0006, dtype: float}
+  - key: "DO::LINE2DO505"
+    name: "LINE2DO505"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B004A, dtype: bool}
+      - {field: "M", cid: 2A0A0007, dtype: float}
+  - key: "DO::LINE2DO506"
+    name: "LINE2DO506"
+    dev_type: "DO"
+    fields:
+      - {field: "ST", cid: 2A5B0051, dtype: bool}
+      - {field: "M", cid: 2A0A0009, dtype: float}
+  - key: "FQT::FQT1"
+    name: "FQT1"
+    dev_type: "FQT"
+    fields:
+      - {field: "ST", cid: 2A010036, dtype: bool}
+      - {field: "P_CZ", cid: 2A1F0001, dtype: bool}
+      - {field: "M", cid: 2A1D0002, dtype: float}
+      - {field: "V", cid: 2A310001, dtype: float}
+      - {field: "F", cid: 2A4D0000, dtype: float}
+      - {field: "P_DT", cid: 2A630001, dtype: float}
+      - {field: "ABS_V", cid: 2A050002, dtype: float}
+      - {field: "P_MIN_FLOW", cid: 2A3B0000, dtype: float}
+      - {field: "P_MAX_FLOW", cid: 2A1D0005, dtype: float}
+  - key: "FQT::LINE1FQT1"
+    name: "LINE1FQT1"
+    dev_type: "FQT"
+    fields:
+      - {field: "ST", cid: 2A010034, dtype: bool}
+      - {field: "P_CZ", cid: 2A1F0000, dtype: bool}
+      - {field: "M", cid: 2A1D0001, dtype: float}
+      - {field: "V", cid: 2A310000, dtype: float}
+      - {field: "F", cid: 2A3B0002, dtype: float}
+      - {field: "P_DT", cid: 2A630000, dtype: float}
+      - {field: "ABS_V", cid: 2A050001, dtype: float}
+      - {field: "P_MIN_FLOW", cid: 2A3B0001, dtype: float}
+      - {field: "P_MAX_FLOW", cid: 2A220000, dtype: float}
+  - key: "FQT::LINE2FQT1"
+    name: "LINE2FQT1"
+    dev_type: "FQT"
+    fields:
+      - {field: "ST", cid: 2A010037, dtype: bool}
+      - {field: "P_CZ", cid: 2A1F0002, dtype: bool}
+      - {field: "M", cid: 2A1D0003, dtype: float}
+      - {field: "V", cid: 2A320000, dtype: float}
+      - {field: "F", cid: 2A4D0001, dtype: float}
+      - {field: "P_DT", cid: 2A630002, dtype: float}
+      - {field: "ABS_V", cid: 2A0A0006, dtype: float}
+      - {field: "P_MIN_FLOW", cid: 2A3B0002, dtype: float}
+      - {field: "P_MAX_FLOW", cid: 2A220001, dtype: float}
+  - key: "FQT::LINE3FQT1"
+    name: "LINE3FQT1"
+    dev_type: "FQT"
+    fields:
+      - {field: "ST", cid: 2A010038, dtype: bool}
+      - {field: "M", cid: 2A1D0004, dtype: float}
+      - {field: "V", cid: 2A320001, dtype: float}
+      - {field: "P_CZ", cid: 2A370006, dtype: float}
+      - {field: "F", cid: 2A4D0002, dtype: float}
+      - {field: "P_DT", cid: 2A750006, dtype: float}
+      - {field: "ABS_V", cid: 2A0A0007, dtype: float}
+      - {field: "P_MIN_FLOW", cid: 2A1D0001, dtype: float}
+      - {field: "P_MAX_FLOW", cid: 2A310000, dtype: float}
+  - key: "FQT::LINE4FQT1"
+    name: "LINE4FQT1"
+    dev_type: "FQT"
+    fields:
+      - {field: "ST", cid: 2A010039, dtype: bool}
+      - {field: "M", cid: 2A1D0005, dtype: float}
+      - {field: "V", cid: 2A360006, dtype: float}
+      - {field: "P_CZ", cid: 2A370007, dtype: float}
+      - {field: "F", cid: 2A510000, dtype: float}
+      - {field: "P_DT", cid: 2A750007, dtype: float}
+      - {field: "ABS_V", cid: 2A0A0009, dtype: float}
+      - {field: "P_MIN_FLOW", cid: 2A1D0002, dtype: float}
+      - {field: "P_MAX_FLOW", cid: 2A310001, dtype: float}
+  - key: "FQT::LINE5FQT1"
+    name: "LINE5FQT1"
+    dev_type: "FQT"
+    fields:
+      - {field: "ST", cid: 2A01003A, dtype: bool}
+      - {field: "M", cid: 2A220000, dtype: float}
+      - {field: "V", cid: 2A360007, dtype: float}
+      - {field: "P_CZ", cid: 2A3B0000, dtype: float}
+      - {field: "F", cid: 2A510001, dtype: float}
+      - {field: "P_DT", cid: 2A750008, dtype: float}
+      - {field: "ABS_V", cid: 2A0D0001, dtype: float}
+      - {field: "P_MIN_FLOW", cid: 2A1D0003, dtype: float}
+      - {field: "P_MAX_FLOW", cid: 2A320000, dtype: float}
+  - key: "FQT::LINE6FQT1"
+    name: "LINE6FQT1"
+    dev_type: "FQT"
+    fields:
+      - {field: "ST", cid: 2A01003B, dtype: bool}
+      - {field: "M", cid: 2A220001, dtype: float}
+      - {field: "V", cid: 2A360009, dtype: float}
+      - {field: "P_CZ", cid: 2A3B0001, dtype: float}
+      - {field: "F", cid: 2A510002, dtype: float}
+      - {field: "P_DT", cid: 2A050000, dtype: float}
+      - {field: "ABS_V", cid: 2A130000, dtype: float}
+      - {field: "P_MIN_FLOW", cid: 2A1D0004, dtype: float}
+      - {field: "P_MAX_FLOW", cid: 2A320001, dtype: float}
+  - key: "FS::LINE1FS1"
+    name: "LINE1FS1"
+    dev_type: "FS"
+    fields:
+      - {field: "ST", cid: 2A150000, dtype: bool}
+      - {field: "M", cid: 2A0A0009, dtype: float}
+  - key: "FS::LINE2FS1"
+    name: "LINE2FS1"
+    dev_type: "FS"
+    fields:
+      - {field: "ST", cid: 2A150001, dtype: bool}
+      - {field: "M", cid: 2A0D0001, dtype: float}
+  - key: "FS::LINE3FS1"
+    name: "LINE3FS1"
+    dev_type: "FS"
+    fields:
+      - {field: "ST", cid: 2A150002, dtype: bool}
+      - {field: "M", cid: 2A130000, dtype: float}
+  - key: "FS::LINE4FS1"
+    name: "LINE4FS1"
+    dev_type: "FS"
+    fields:
+      - {field: "ST", cid: 2A150003, dtype: bool}
+      - {field: "M", cid: 2A130001, dtype: float}
+  - key: "FS::LINE5FS1"
+    name: "LINE5FS1"
+    dev_type: "FS"
+    fields:
+      - {field: "ST", cid: 2A150004, dtype: bool}
+      - {field: "M", cid: 2A130002, dtype: float}
+  - key: "FS::LINE6FS1"
+    name: "LINE6FS1"
+    dev_type: "FS"
+    fields:
+      - {field: "ST", cid: 2A150005, dtype: bool}
+      - {field: "M", cid: 2A1D0000, dtype: float}
+  - key: "HA::H1HA1"
+    name: "H1HA1"
+    dev_type: "HA"
+    fields:
+      - {field: "ST", cid: 2A01003D, dtype: bool}
+      - {field: "M", cid: 2A310000, dtype: float}
+  - key: "HA::HA1"
+    name: "HA1"
+    dev_type: "HA"
+    fields:
+      - {field: "ST", cid: 2A01003C, dtype: bool}
+      - {field: "M", cid: 2A220001, dtype: float}
+  - key: "HL::H1HL1"
+    name: "H1HL1"
+    dev_type: "HL"
+    fields:
+      - {field: "ST", cid: 2A010040, dtype: bool}
+      - {field: "M", cid: 2A320000, dtype: float}
+  - key: "HL::HL3"
+    name: "HL3"
+    dev_type: "HL"
+    fields:
+      - {field: "ST", cid: 2A01003F, dtype: bool}
+      - {field: "M", cid: 2A310001, dtype: float}
+  - key: "LS::LINE1LS1"
+    name: "LINE1LS1"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A0D0000, dtype: bool}
+      - {field: "M", cid: 2A3B0002, dtype: float}
+  - key: "LS::LINE1LS2"
+    name: "LINE1LS2"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A0D0001, dtype: float}
+      - {field: "M", cid: 2A4D0000, dtype: float}
+  - key: "LS::LINE1LS3"
+    name: "LINE1LS3"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A0D0002, dtype: bool}
+      - {field: "M", cid: 2A4D0001, dtype: float}
+  - key: "LS::LINE2LS1"
+    name: "LINE2LS1"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A01001D, dtype: bool}
+      - {field: "M", cid: 2A630002, dtype: float}
+  - key: "LS::LINE2LS2"
+    name: "LINE2LS2"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A01001F, dtype: bool}
+      - {field: "M", cid: 2A750006, dtype: float}
+  - key: "LS::LINE2LS3"
+    name: "LINE2LS3"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A010020, dtype: bool}
+      - {field: "M", cid: 2A750007, dtype: float}
+  - key: "LS::LINE3LS1"
+    name: "LINE3LS1"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A010021, dtype: bool}
+      - {field: "M", cid: 2A750008, dtype: float}
+  - key: "LS::LINE3LS2"
+    name: "LINE3LS2"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A010022, dtype: bool}
+      - {field: "M", cid: 2A050000, dtype: float}
+  - key: "LS::LINE3LS3"
+    name: "LINE3LS3"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A010023, dtype: bool}
+      - {field: "M", cid: 2A050001, dtype: float}
+  - key: "LS::LINE4LS1"
+    name: "LINE4LS1"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A010024, dtype: bool}
+      - {field: "M", cid: 2A050002, dtype: float}
+  - key: "LS::LINE4LS2"
+    name: "LINE4LS2"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A010025, dtype: bool}
+      - {field: "M", cid: 2A0A0006, dtype: float}
+  - key: "LS::LINE4LS3"
+    name: "LINE4LS3"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A010026, dtype: bool}
+      - {field: "M", cid: 2A0A0007, dtype: float}
+  - key: "LS::LINE5LS1"
+    name: "LINE5LS1"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A010027, dtype: bool}
+      - {field: "M", cid: 2A0A0009, dtype: float}
+  - key: "LS::LINE5LS2"
+    name: "LINE5LS2"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A010028, dtype: bool}
+      - {field: "M", cid: 2A0D0001, dtype: float}
+  - key: "LS::LINE5LS3"
+    name: "LINE5LS3"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A010029, dtype: bool}
+      - {field: "M", cid: 2A130000, dtype: float}
+  - key: "LS::LINE6LS1"
+    name: "LINE6LS1"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A01002B, dtype: bool}
+      - {field: "M", cid: 2A130001, dtype: float}
+  - key: "LS::LINE6LS2"
+    name: "LINE6LS2"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A010032, dtype: bool}
+      - {field: "M", cid: 2A130002, dtype: float}
+  - key: "LS::LINE6LS3"
+    name: "LINE6LS3"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A010033, dtype: bool}
+      - {field: "M", cid: 2A1D0000, dtype: float}
+  - key: "LS::LS4"
+    name: "LS4"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A010016, dtype: bool}
+      - {field: "M", cid: 2A4D0002, dtype: float}
+  - key: "LS::LS5"
+    name: "LS5"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A010017, dtype: bool}
+      - {field: "M", cid: 2A510000, dtype: float}
+  - key: "LS::LS6"
+    name: "LS6"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A010018, dtype: bool}
+      - {field: "M", cid: 2A510001, dtype: float}
+  - key: "LS::LS7"
+    name: "LS7"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A01001A, dtype: bool}
+      - {field: "M", cid: 2A510002, dtype: float}
+  - key: "LS::LS8"
+    name: "LS8"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A01001B, dtype: bool}
+      - {field: "M", cid: 2A630000, dtype: float}
+  - key: "LS::LS9"
+    name: "LS9"
+    dev_type: "LS"
+    fields:
+      - {field: "ST", cid: 2A01001C, dtype: bool}
+      - {field: "M", cid: 2A630001, dtype: float}
+  - key: "LT::LT1"
+    name: "LT1"
+    dev_type: "LT"
+    fields:
+      - {field: "M", cid: 2A130001, dtype: float}
+      - {field: "P_CZ", cid: 2A1D0001, dtype: float}
+      - {field: "V", cid: 2A1D0004, dtype: float}
+      - {field: "CLEVEL", cid: 2A3B0001, dtype: float}
+      - {field: "P_MAX_P", cid: 2A4D0001, dtype: float}
+      - {field: "P_R", cid: 2A510001, dtype: float}
+      - {field: "P_H_CONE", cid: 2A630001, dtype: float}
+  - key: "LT::LT2"
+    name: "LT2"
+    dev_type: "LT"
+    fields:
+      - {field: "M", cid: 2A130002, dtype: float}
+      - {field: "P_CZ", cid: 2A1D0002, dtype: float}
+      - {field: "V", cid: 2A1D0005, dtype: float}
+      - {field: "CLEVEL", cid: 2A3B0002, dtype: float}
+      - {field: "P_MAX_P", cid: 2A4D0002, dtype: float}
+      - {field: "P_R", cid: 2A510002, dtype: float}
+      - {field: "P_H_CONE", cid: 2A630002, dtype: float}
+  - key: "LT::LT3"
+    name: "LT3"
+    dev_type: "LT"
+    fields:
+      - {field: "M", cid: 2A1D0000, dtype: float}
+      - {field: "P_CZ", cid: 2A1D0003, dtype: float}
+      - {field: "V", cid: 2A220000, dtype: float}
+      - {field: "CLEVEL", cid: 2A4D0000, dtype: float}
+      - {field: "P_MAX_P", cid: 2A510000, dtype: float}
+      - {field: "P_R", cid: 2A630000, dtype: float}
+      - {field: "P_H_CONE", cid: 2A750006, dtype: float}
+  - key: "M::LINE1M1"
+    name: "LINE1M1"
+    dev_type: "M"
+    fields:
+      - {field: "ST", cid: 2A01000B, dtype: bool}
+      - {field: "M", cid: 2A750007, dtype: float}
+      - {field: "P_ON_TIME", cid: 2A130002, dtype: float}
+      - {field: "V", cid: 2A320000, dtype: float}
+  - key: "M::LINE1M1001"
+    name: "LINE1M1001"
+    dev_type: "M"
+    fields:
+      - {field: "ST", cid: 2A010014, dtype: bool}
+      - {field: "M", cid: 2A130000, dtype: float}
+      - {field: "P_ON_TIME", cid: 2A310000, dtype: float}
+  - key: "M::LINE2M1"
+    name: "LINE2M1"
+    dev_type: "M"
+    fields:
+      - {field: "ST", cid: 2A01000F, dtype: bool}
+      - {field: "M", cid: 2A050002, dtype: float}
+      - {field: "P_ON_TIME", cid: 2A1D0003, dtype: float}
+      - {field: "V", cid: 2A360009, dtype: float}
+  - key: "M::LINE2M1002"
+    name: "LINE2M1002"
+    dev_type: "M"
+    fields:
+      - {field: "ST", cid: 2A010015, dtype: bool}
+      - {field: "M", cid: 2A130001, dtype: float}
+      - {field: "P_ON_TIME", cid: 2A310001, dtype: float}
+  - key: "M::LINE3M1"
+    name: "LINE3M1"
+    dev_type: "M"
+    fields:
+      - {field: "ST", cid: 2A010010, dtype: bool}
+      - {field: "M", cid: 2A0A0006, dtype: float}
+      - {field: "P_ON_TIME", cid: 2A1D0004, dtype: float}
+      - {field: "V", cid: 2A370006, dtype: float}
+  - key: "M::LINE4M1"
+    name: "LINE4M1"
+    dev_type: "M"
+    fields:
+      - {field: "ST", cid: 2A010011, dtype: bool}
+      - {field: "M", cid: 2A0A0007, dtype: float}
+      - {field: "P_ON_TIME", cid: 2A1D0005, dtype: float}
+      - {field: "V", cid: 2A370007, dtype: float}
+  - key: "M::LINE5M1"
+    name: "LINE5M1"
+    dev_type: "M"
+    fields:
+      - {field: "ST", cid: 2A010012, dtype: bool}
+      - {field: "M", cid: 2A0A0009, dtype: float}
+      - {field: "P_ON_TIME", cid: 2A220000, dtype: float}
+      - {field: "V", cid: 2A3B0000, dtype: float}
+  - key: "M::LINE6M1"
+    name: "LINE6M1"
+    dev_type: "M"
+    fields:
+      - {field: "ST", cid: 2A010013, dtype: bool}
+      - {field: "M", cid: 2A0D0001, dtype: float}
+      - {field: "P_ON_TIME", cid: 2A220001, dtype: float}
+      - {field: "V", cid: 2A3B0001, dtype: float}
+  - key: "M::M1"
+    name: "M1"
+    dev_type: "M"
+    fields:
+      - {field: "V", cid: 2A320001, dtype: float}
+  - key: "M::M103"
+    name: "M103"
+    dev_type: "M"
+    fields:
+      - {field: "ST", cid: 2A01000E, dtype: bool}
+      - {field: "M", cid: 2A050001, dtype: float}
+      - {field: "V", cid: 2A360007, dtype: float}
+  - key: "M::M2"
+    name: "M2"
+    dev_type: "M"
+    fields:
+      - {field: "V", cid: 2A360006, dtype: float}
+  - key: "M::V101"
+    name: "V101"
+    dev_type: "M"
+    fields:
+      - {field: "ST", cid: 2A01000C, dtype: bool}
+      - {field: "M", cid: 2A750008, dtype: float}
+      - {field: "P_ON_TIME", cid: 2A1D0000, dtype: float}
+  - key: "M::V102"
+    name: "V102"
+    dev_type: "M"
+    fields:
+      - {field: "ST", cid: 2A01000D, dtype: bool}
+      - {field: "M", cid: 2A050000, dtype: float}
+      - {field: "P_ON_TIME", cid: 2A1D0001, dtype: float}
+  - key: "M::V103"
+    name: "V103"
+    dev_type: "M"
+    fields:
+      - {field: "P_ON_TIME", cid: 2A1D0002, dtype: float}
+  - key: "PT::LINE1PT1"
+    name: "LINE1PT1"
+    dev_type: "PT"
+    fields:
+      - {field: "ST", cid: 2A5B0053, dtype: bool}
+      - {field: "P_CZ", cid: 2A510000, dtype: float}
+      - {field: "P_MAX_V", cid: 2A0A0007, dtype: float}
+      - {field: "P_MIN_V", cid: 2A1D0000, dtype: float}
+      - {field: "V", cid: 2A220000, dtype: float}
+      - {field: "M", cid: 2A360006, dtype: float}
+  - key: "PT::LINE2PT1"
+    name: "LINE2PT1"
+    dev_type: "PT"
+    fields:
+      - {field: "ST", cid: 2A5B0056, dtype: bool}
+      - {field: "P_CZ", cid: 2A510001, dtype: float}
+      - {field: "P_MAX_V", cid: 2A0A0009, dtype: float}
+      - {field: "P_MIN_V", cid: 2A1D0001, dtype: float}
+      - {field: "V", cid: 2A220001, dtype: float}
+      - {field: "M", cid: 2A360007, dtype: float}
+  - key: "PT::LINE3PT1"
+    name: "LINE3PT1"
+    dev_type: "PT"
+    fields:
+      - {field: "ST", cid: 2A5B005A, dtype: bool}
+      - {field: "P_CZ", cid: 2A510002, dtype: float}
+      - {field: "P_MAX_V", cid: 2A0D0001, dtype: float}
+      - {field: "P_MIN_V", cid: 2A1D0002, dtype: float}
+      - {field: "V", cid: 2A310000, dtype: float}
+      - {field: "M", cid: 2A360009, dtype: float}
+  - key: "PT::LINE4PT1"
+    name: "LINE4PT1"
+    dev_type: "PT"
+    fields:
+      - {field: "ST", cid: 2A5B0065, dtype: bool}
+      - {field: "P_CZ", cid: 2A050001, dtype: float}
+      - {field: "P_MAX_V", cid: 2A130000, dtype: float}
+      - {field: "P_MIN_V", cid: 2A1D0003, dtype: float}
+      - {field: "V", cid: 2A310001, dtype: float}
+      - {field: "M", cid: 2A370006, dtype: float}
+  - key: "PT::LINE5PT1"
+    name: "LINE5PT1"
+    dev_type: "PT"
+    fields:
+      - {field: "ST", cid: 2A5B0066, dtype: bool}
+      - {field: "P_CZ", cid: 2A050002, dtype: float}
+      - {field: "P_MAX_V", cid: 2A130001, dtype: float}
+      - {field: "P_MIN_V", cid: 2A1D0004, dtype: float}
+      - {field: "V", cid: 2A320000, dtype: float}
+      - {field: "M", cid: 2A370007, dtype: float}
+  - key: "PT::LINE6PT1"
+    name: "LINE6PT1"
+    dev_type: "PT"
+    fields:
+      - {field: "ST", cid: 2A5B006F, dtype: bool}
+      - {field: "P_CZ", cid: 2A0A0006, dtype: float}
+      - {field: "P_MAX_V", cid: 2A130002, dtype: float}
+      - {field: "P_MIN_V", cid: 2A1D0005, dtype: float}
+      - {field: "V", cid: 2A320001, dtype: float}
+      - {field: "M", cid: 2A3B0000, dtype: float}
+  - key: "QT::LINE1QT1"
+    name: "LINE1QT1"
+    dev_type: "QT"
+    fields:
+      - {field: "ST", cid: 2A5B0066, dtype: bool}
+      - {field: "M", cid: 2A1D0000, dtype: float}
+      - {field: "V", cid: 2A360006, dtype: float}
+      - {field: "P_MIN_V", cid: 2A3B0001, dtype: float}
+      - {field: "P_MAX_V", cid: 2A510001, dtype: float}
+      - {field: "P_CZ", cid: 2A750007, dtype: float}
+      - {field: "T", cid: 2A1D0003, dtype: float}
+  - key: "QT::LINE2QT1"
+    name: "LINE2QT1"
+    dev_type: "QT"
+    fields:
+      - {field: "ST", cid: 2A5B006F, dtype: bool}
+      - {field: "M", cid: 2A1D0001, dtype: float}
+      - {field: "V", cid: 2A360007, dtype: float}
+      - {field: "P_MIN_V", cid: 2A3B0002, dtype: float}
+      - {field: "P_MAX_V", cid: 2A510002, dtype: float}
+      - {field: "P_CZ", cid: 2A750008, dtype: float}
+      - {field: "T", cid: 2A1D0004, dtype: float}
+  - key: "QT::LINE3QT1"
+    name: "LINE3QT1"
+    dev_type: "QT"
+    fields:
+      - {field: "ST", cid: 2A5B0072, dtype: bool}
+      - {field: "M", cid: 2A1D0002, dtype: float}
+      - {field: "V", cid: 2A360009, dtype: float}
+      - {field: "P_MIN_V", cid: 2A4D0000, dtype: float}
+      - {field: "P_MAX_V", cid: 2A630000, dtype: float}
+      - {field: "P_CZ", cid: 2A050000, dtype: float}
+      - {field: "T", cid: 2A1D0005, dtype: float}
+  - key: "QT::LINE4QT1"
+    name: "LINE4QT1"
+    dev_type: "QT"
+    fields:
+      - {field: "ST", cid: 2A5B0075, dtype: bool}
+      - {field: "M", cid: 2A1D0003, dtype: float}
+      - {field: "V", cid: 2A370006, dtype: float}
+      - {field: "P_MIN_V", cid: 2A4D0001, dtype: float}
+      - {field: "P_MAX_V", cid: 2A630001, dtype: float}
+      - {field: "P_CZ", cid: 2A050001, dtype: float}
+      - {field: "T", cid: 2A220000, dtype: float}
+  - key: "QT::LINE5QT1"
+    name: "LINE5QT1"
+    dev_type: "QT"
+    fields:
+      - {field: "ST", cid: 2A010000, dtype: bool}
+      - {field: "M", cid: 2A1D0004, dtype: float}
+      - {field: "V", cid: 2A370007, dtype: float}
+      - {field: "P_MIN_V", cid: 2A4D0002, dtype: float}
+      - {field: "P_MAX_V", cid: 2A630002, dtype: float}
+      - {field: "P_CZ", cid: 2A050002, dtype: float}
+      - {field: "T", cid: 2A220001, dtype: float}
+  - key: "QT::LINE6QT1"
+    name: "LINE6QT1"
+    dev_type: "QT"
+    fields:
+      - {field: "ST", cid: 2A010001, dtype: bool}
+      - {field: "M", cid: 2A1D0005, dtype: float}
+      - {field: "V", cid: 2A3B0000, dtype: float}
+      - {field: "P_MIN_V", cid: 2A510000, dtype: float}
+      - {field: "P_MAX_V", cid: 2A750006, dtype: float}
+      - {field: "P_CZ", cid: 2A0A0006, dtype: float}
+      - {field: "T", cid: 2A310000, dtype: float}
+  - key: "SB::CAB1SB1"
+    name: "CAB1SB1"
+    dev_type: "SB"
+    fields:
+      - {field: "ST", cid: 2A0D0000, dtype: bool}
+      - {field: "M", cid: 2A320001, dtype: float}
+  - key: "SB::CAB2SB1"
+    name: "CAB2SB1"
+    dev_type: "SB"
+    fields:
+      - {field: "ST", cid: 2A0D0002, dtype: bool}
+      - {field: "M", cid: 2A360006, dtype: float}
+  - key: "SB::CAB3SB1"
+    name: "CAB3SB1"
+    dev_type: "SB"
+    fields:
+      - {field: "ST", cid: 2A150000, dtype: bool}
+      - {field: "M", cid: 2A360007, dtype: float}
+  - key: "SB::CAB4SB1"
+    name: "CAB4SB1"
+    dev_type: "SB"
+    fields:
+      - {field: "ST", cid: 2A150001, dtype: bool}
+      - {field: "M", cid: 2A360009, dtype: float}
+  - key: "SB::CAB5SB1"
+    name: "CAB5SB1"
+    dev_type: "SB"
+    fields:
+      - {field: "ST", cid: 2A150002, dtype: bool}
+      - {field: "M", cid: 2A370006, dtype: float}
+  - key: "SYSTEM::CMD"
+    name: "CMD"
+    dev_type: "SYSTEM"
+    fields:
+      - {field: "CMD", cid: 2A370006, dtype: float}
+  - key: "SYSTEM::CMD_ANSWER"
+    name: "CMD_ANSWER"
+    dev_type: "SYSTEM"
+    fields:
+      - {field: "CMD_ANSWER", cid: 2A370007, dtype: float}
+  - key: "SYSTEM::NODEENABLED[2]"
+    name: "NODEENABLED[2]"
+    dev_type: "SYSTEM"
+    fields:
+      - {field: "NODEENABLED[2]", cid: 2A4D0000, dtype: float}
+  - key: "SYSTEM::NODEENABLED[3]"
+    name: "NODEENABLED[3]"
+    dev_type: "SYSTEM"
+    fields:
+      - {field: "NODEENABLED[3]", cid: 2A4D0001, dtype: float}
+  - key: "SYSTEM::NODEENABLED[4]"
+    name: "NODEENABLED[4]"
+    dev_type: "SYSTEM"
+    fields:
+      - {field: "NODEENABLED[4]", cid: 2A4D0002, dtype: float}
+  - key: "SYSTEM::NODEENABLED[5]"
+    name: "NODEENABLED[5]"
+    dev_type: "SYSTEM"
+    fields:
+      - {field: "NODEENABLED[5]", cid: 2A510000, dtype: float}
+  - key: "SYSTEM::NODEENABLED[6]"
+    name: "NODEENABLED[6]"
+    dev_type: "SYSTEM"
+    fields:
+      - {field: "NODEENABLED[6]", cid: 2A510001, dtype: float}
+  - key: "SYSTEM::NODEENABLED[7]"
+    name: "NODEENABLED[7]"
+    dev_type: "SYSTEM"
+    fields:
+      - {field: "NODEENABLED[7]", cid: 2A510002, dtype: float}
+  - key: "SYSTEM::P_AUTO_PAUSE_OPER_ON_DEV_ERR"
+    name: "P_AUTO_PAUSE_OPER_ON_DEV_ERR"
+    dev_type: "SYSTEM"
+    fields:
+      - {field: "P_AUTO_PAUSE_OPER_ON_DEV_ERR", cid: 2A3B0002, dtype: float}
+  - key: "SYSTEM::P_RESTRICTIONS_MANUAL_TIME"
+    name: "P_RESTRICTIONS_MANUAL_TIME"
+    dev_type: "SYSTEM"
+    fields:
+      - {field: "P_RESTRICTIONS_MANUAL_TIME", cid: 2A3B0001, dtype: float}
+  - key: "SYSTEM::P_RESTRICTIONS_MODE"
+    name: "P_RESTRICTIONS_MODE"
+    dev_type: "SYSTEM"
+    fields:
+      - {field: "P_RESTRICTIONS_MODE", cid: 2A3B0000, dtype: float}
+  - key: "SYSTEM::P_V_OFF_DELAY_TIME"
+    name: "P_V_OFF_DELAY_TIME"
+    dev_type: "SYSTEM"
+    fields:
+      - {field: "P_V_OFF_DELAY_TIME", cid: 2A360006, dtype: float}
+  - key: "SYSTEM::UP_TIME"
+    name: "UP_TIME"
+    dev_type: "SYSTEM"
+    fields:
+      - {field: "UP_TIME", cid: 2A320000, dtype: float}
+  - key: "SYSTEM::WASH_VALVE_LOWER_SEAT_TIME"
+    name: "WASH_VALVE_LOWER_SEAT_TIME"
+    dev_type: "SYSTEM"
+    fields:
+      - {field: "WASH_VALVE_LOWER_SEAT_TIME", cid: 2A360009, dtype: float}
+  - key: "SYSTEM::WASH_VALVE_SEAT_PERIOD"
+    name: "WASH_VALVE_SEAT_PERIOD"
+    dev_type: "SYSTEM"
+    fields:
+      - {field: "WASH_VALVE_SEAT_PERIOD", cid: 2A320001, dtype: float}
+  - key: "SYSTEM::WASH_VALVE_UPPER_SEAT_TIME"
+    name: "WASH_VALVE_UPPER_SEAT_TIME"
+    dev_type: "SYSTEM"
+    fields:
+      - {field: "WASH_VALVE_UPPER_SEAT_TIME", cid: 2A360007, dtype: float}
+  - key: "TE::LINE1TE1"
+    name: "LINE1TE1"
+    dev_type: "TE"
+    fields:
+      - {field: "M", cid: 2A1D0001, dtype: float}
+      - {field: "P_CZ", cid: 2A360007, dtype: float}
+      - {field: "V", cid: 2A510002, dtype: float}
+  - key: "TE::LINE1TE2"
+    name: "LINE1TE2"
+    dev_type: "TE"
+    fields:
+      - {field: "M", cid: 2A1D0002, dtype: float}
+      - {field: "P_CZ", cid: 2A360009, dtype: float}
+      - {field: "V", cid: 2A630000, dtype: float}
+  - key: "TE::LINE2TE1"
+    name: "LINE2TE1"
+    dev_type: "TE"
+    fields:
+      - {field: "M", cid: 2A1D0003, dtype: float}
+      - {field: "P_CZ", cid: 2A370006, dtype: float}
+      - {field: "V", cid: 2A630001, dtype: float}
+  - key: "TE::LINE2TE2"
+    name: "LINE2TE2"
+    dev_type: "TE"
+    fields:
+      - {field: "M", cid: 2A1D0004, dtype: float}
+      - {field: "P_CZ", cid: 2A370007, dtype: float}
+      - {field: "V", cid: 2A630002, dtype: float}
+  - key: "TE::LINE3TE1"
+    name: "LINE3TE1"
+    dev_type: "TE"
+    fields:
+      - {field: "M", cid: 2A1D0005, dtype: float}
+      - {field: "P_CZ", cid: 2A3B0000, dtype: float}
+      - {field: "V", cid: 2A750006, dtype: float}
+  - key: "TE::LINE3TE2"
+    name: "LINE3TE2"
+    dev_type: "TE"
+    fields:
+      - {field: "M", cid: 2A220000, dtype: float}
+      - {field: "P_CZ", cid: 2A3B0001, dtype: float}
+      - {field: "V", cid: 2A750007, dtype: float}
+  - key: "TE::LINE4TE1"
+    name: "LINE4TE1"
+    dev_type: "TE"
+    fields:
+      - {field: "M", cid: 2A220001, dtype: float}
+      - {field: "P_CZ", cid: 2A3B0002, dtype: float}
+      - {field: "V", cid: 2A750008, dtype: float}
+  - key: "TE::LINE4TE2"
+    name: "LINE4TE2"
+    dev_type: "TE"
+    fields:
+      - {field: "M", cid: 2A310000, dtype: float}
+      - {field: "P_CZ", cid: 2A4D0000, dtype: float}
+      - {field: "V", cid: 2A050000, dtype: float}
+  - key: "TE::LINE5TE1"
+    name: "LINE5TE1"
+    dev_type: "TE"
+    fields:
+      - {field: "M", cid: 2A310001, dtype: float}
+      - {field: "P_CZ", cid: 2A4D0001, dtype: float}
+      - {field: "V", cid: 2A050001, dtype: float}
+  - key: "TE::LINE5TE2"
+    name: "LINE5TE2"
+    dev_type: "TE"
+    fields:
+      - {field: "M", cid: 2A320000, dtype: float}
+      - {field: "P_CZ", cid: 2A4D0002, dtype: float}
+      - {field: "V", cid: 2A050002, dtype: float}
+  - key: "TE::LINE6TE1"
+    name: "LINE6TE1"
+    dev_type: "TE"
+    fields:
+      - {field: "M", cid: 2A320001, dtype: float}
+      - {field: "P_CZ", cid: 2A510000, dtype: float}
+      - {field: "V", cid: 2A0A0006, dtype: float}
+  - key: "TE::LINE6TE2"
+    name: "LINE6TE2"
+    dev_type: "TE"
+    fields:
+      - {field: "M", cid: 2A360006, dtype: float}
+      - {field: "P_CZ", cid: 2A510001, dtype: float}
+      - {field: "V", cid: 2A0A0007, dtype: float}
+  - key: "V::L1_V1"
+    name: "L1_V1"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010025, dtype: bool}
+      - {field: "M", cid: 2A130001, dtype: float}
+  - key: "V::L1_V11"
+    name: "L1_V11"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010026, dtype: bool}
+      - {field: "M", cid: 2A130002, dtype: float}
+  - key: "V::L1_V12"
+    name: "L1_V12"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010027, dtype: bool}
+      - {field: "M", cid: 2A1D0000, dtype: float}
+  - key: "V::L1_V13"
+    name: "L1_V13"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010028, dtype: bool}
+      - {field: "M", cid: 2A1D0001, dtype: float}
+  - key: "V::L1_V2"
+    name: "L1_V2"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010029, dtype: bool}
+      - {field: "M", cid: 2A1D0002, dtype: float}
+  - key: "V::L1_V3"
+    name: "L1_V3"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010001, dtype: bool}
+      - {field: "M", cid: 2A1D0003, dtype: float}
+  - key: "V::L2_V1"
+    name: "L2_V1"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010011, dtype: bool}
+      - {field: "M", cid: 2A370007, dtype: float}
+  - key: "V::L2_V11"
+    name: "L2_V11"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010012, dtype: bool}
+      - {field: "M", cid: 2A3B0000, dtype: float}
+  - key: "V::L2_V12"
+    name: "L2_V12"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010013, dtype: bool}
+      - {field: "M", cid: 2A3B0001, dtype: float}
+  - key: "V::L2_V13"
+    name: "L2_V13"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010014, dtype: bool}
+      - {field: "M", cid: 2A3B0002, dtype: float}
+  - key: "V::L2_V2"
+    name: "L2_V2"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010015, dtype: bool}
+      - {field: "M", cid: 2A4D0000, dtype: float}
+  - key: "V::L2_V3"
+    name: "L2_V3"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010016, dtype: bool}
+      - {field: "M", cid: 2A4D0001, dtype: float}
+  - key: "V::L3_V1"
+    name: "L3_V1"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010038, dtype: bool}
+      - {field: "M", cid: 2A1D0000, dtype: float}
+  - key: "V::L3_V11"
+    name: "L3_V11"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010039, dtype: bool}
+      - {field: "M", cid: 2A1D0001, dtype: float}
+  - key: "V::L3_V12"
+    name: "L3_V12"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01003A, dtype: bool}
+      - {field: "M", cid: 2A1D0002, dtype: float}
+  - key: "V::L3_V13"
+    name: "L3_V13"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01003B, dtype: bool}
+      - {field: "M", cid: 2A1D0003, dtype: float}
+  - key: "V::L3_V2"
+    name: "L3_V2"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01003C, dtype: bool}
+      - {field: "M", cid: 2A1D0004, dtype: float}
+  - key: "V::L3_V3"
+    name: "L3_V3"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01003D, dtype: bool}
+      - {field: "M", cid: 2A1D0005, dtype: float}
+  - key: "V::L4_V1"
+    name: "L4_V1"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A370009, dtype: bool}
+      - {field: "M", cid: 2A510000, dtype: float}
+  - key: "V::L4_V11"
+    name: "L4_V11"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580009, dtype: bool}
+      - {field: "M", cid: 2A510001, dtype: float}
+  - key: "V::L4_V12"
+    name: "L4_V12"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A58000A, dtype: bool}
+      - {field: "M", cid: 2A510002, dtype: float}
+  - key: "V::L4_V13"
+    name: "L4_V13"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A58000B, dtype: bool}
+      - {field: "M", cid: 2A630000, dtype: float}
+  - key: "V::L4_V2"
+    name: "L4_V2"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A58000C, dtype: bool}
+      - {field: "M", cid: 2A630001, dtype: float}
+  - key: "V::L4_V3"
+    name: "L4_V3"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A58000D, dtype: bool}
+      - {field: "M", cid: 2A630002, dtype: float}
+  - key: "V::L5_V1"
+    name: "L5_V1"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580037, dtype: bool}
+      - {field: "M", cid: 2A1D0003, dtype: float}
+  - key: "V::L5_V11"
+    name: "L5_V11"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580038, dtype: bool}
+      - {field: "M", cid: 2A1D0004, dtype: float}
+  - key: "V::L5_V12"
+    name: "L5_V12"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A58003C, dtype: bool}
+      - {field: "M", cid: 2A1D0005, dtype: float}
+  - key: "V::L5_V13"
+    name: "L5_V13"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580049, dtype: bool}
+      - {field: "M", cid: 2A220000, dtype: float}
+  - key: "V::L5_V2"
+    name: "L5_V2"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A58004C, dtype: bool}
+      - {field: "M", cid: 2A220001, dtype: float}
+  - key: "V::L5_V3"
+    name: "L5_V3"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A58004D, dtype: bool}
+      - {field: "M", cid: 2A310000, dtype: float}
+  - key: "V::L6_V1"
+    name: "L6_V1"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B0039, dtype: bool}
+      - {field: "M", cid: 2A510002, dtype: float}
+  - key: "V::L6_V11"
+    name: "L6_V11"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B003A, dtype: bool}
+      - {field: "M", cid: 2A630000, dtype: float}
+  - key: "V::L6_V12"
+    name: "L6_V12"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B0046, dtype: bool}
+      - {field: "M", cid: 2A630001, dtype: float}
+  - key: "V::L6_V13"
+    name: "L6_V13"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B0047, dtype: bool}
+      - {field: "M", cid: 2A630002, dtype: float}
+  - key: "V::L6_V2"
+    name: "L6_V2"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B0048, dtype: bool}
+      - {field: "M", cid: 2A750006, dtype: float}
+  - key: "V::L6_V3"
+    name: "L6_V3"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B004A, dtype: bool}
+      - {field: "M", cid: 2A750007, dtype: float}
+  - key: "V::LINE1V0"
+    name: "LINE1V0"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010000, dtype: bool}
+      - {field: "M", cid: 2A630000, dtype: float}
+  - key: "V::LINE1V1"
+    name: "LINE1V1"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010001, dtype: bool}
+      - {field: "M", cid: 2A630001, dtype: float}
+  - key: "V::LINE1V10"
+    name: "LINE1V10"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010002, dtype: bool}
+      - {field: "M", cid: 2A630002, dtype: float}
+  - key: "V::LINE1V1001"
+    name: "LINE1V1001"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01000E, dtype: bool}
+      - {field: "M", cid: 2A1D0004, dtype: float}
+  - key: "V::LINE1V1002"
+    name: "LINE1V1002"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010011, dtype: bool}
+      - {field: "M", cid: 2A220000, dtype: float}
+  - key: "V::LINE1V1003"
+    name: "LINE1V1003"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010012, dtype: bool}
+      - {field: "M", cid: 2A220001, dtype: float}
+  - key: "V::LINE1V1004"
+    name: "LINE1V1004"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010013, dtype: bool}
+      - {field: "M", cid: 2A310000, dtype: float}
+  - key: "V::LINE1V1005"
+    name: "LINE1V1005"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010014, dtype: bool}
+      - {field: "M", cid: 2A310001, dtype: float}
+  - key: "V::LINE1V1006"
+    name: "LINE1V1006"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010015, dtype: bool}
+      - {field: "M", cid: 2A320000, dtype: float}
+  - key: "V::LINE1V1051"
+    name: "LINE1V1051"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010016, dtype: bool}
+      - {field: "M", cid: 2A320001, dtype: float}
+  - key: "V::LINE1V1052"
+    name: "LINE1V1052"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010017, dtype: bool}
+      - {field: "M", cid: 2A360006, dtype: float}
+  - key: "V::LINE1V11"
+    name: "LINE1V11"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010003, dtype: bool}
+      - {field: "M", cid: 2A750006, dtype: float}
+  - key: "V::LINE1V1101"
+    name: "LINE1V1101"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010018, dtype: bool}
+      - {field: "M", cid: 2A360007, dtype: float}
+  - key: "V::LINE1V1102"
+    name: "LINE1V1102"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010002, dtype: bool}
+      - {field: "M", cid: 2A360009, dtype: float}
+  - key: "V::LINE1V1103"
+    name: "LINE1V1103"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01001A, dtype: bool}
+      - {field: "M", cid: 2A370006, dtype: float}
+  - key: "V::LINE1V1104"
+    name: "LINE1V1104"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01001B, dtype: bool}
+      - {field: "M", cid: 2A370007, dtype: float}
+  - key: "V::LINE1V1105"
+    name: "LINE1V1105"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01001C, dtype: bool}
+      - {field: "M", cid: 2A3B0000, dtype: float}
+  - key: "V::LINE1V1106"
+    name: "LINE1V1106"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01001D, dtype: bool}
+      - {field: "M", cid: 2A3B0001, dtype: float}
+  - key: "V::LINE1V1151"
+    name: "LINE1V1151"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010003, dtype: bool}
+      - {field: "M", cid: 2A3B0002, dtype: float}
+  - key: "V::LINE1V1152"
+    name: "LINE1V1152"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01001F, dtype: bool}
+      - {field: "M", cid: 2A4D0000, dtype: float}
+  - key: "V::LINE1V12"
+    name: "LINE1V12"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010004, dtype: bool}
+      - {field: "M", cid: 2A750007, dtype: float}
+  - key: "V::LINE1V13"
+    name: "LINE1V13"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010005, dtype: bool}
+      - {field: "M", cid: 2A750008, dtype: float}
+  - key: "V::LINE1V15"
+    name: "LINE1V15"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01000F, dtype: bool}
+      - {field: "M", cid: 2A1D0005, dtype: float}
+  - key: "V::LINE1V2"
+    name: "LINE1V2"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010006, dtype: bool}
+      - {field: "M", cid: 2A050000, dtype: float}
+  - key: "V::LINE1V3"
+    name: "LINE1V3"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010000, dtype: bool}
+      - {field: "M", cid: 2A050001, dtype: float}
+  - key: "V::LINE1V4"
+    name: "LINE1V4"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010008, dtype: bool}
+      - {field: "M", cid: 2A050002, dtype: float}
+  - key: "V::LINE1V5"
+    name: "LINE1V5"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010009, dtype: bool}
+      - {field: "M", cid: 2A0A0006, dtype: float}
+  - key: "V::LINE1V6"
+    name: "LINE1V6"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01000A, dtype: bool}
+      - {field: "M", cid: 2A0A0007, dtype: float}
+  - key: "V::LINE1V7"
+    name: "LINE1V7"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01000B, dtype: bool}
+      - {field: "M", cid: 2A0A0009, dtype: float}
+  - key: "V::LINE1V8"
+    name: "LINE1V8"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01000C, dtype: bool}
+      - {field: "M", cid: 2A0D0001, dtype: float}
+  - key: "V::LINE1V9"
+    name: "LINE1V9"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01000D, dtype: bool}
+      - {field: "M", cid: 2A130000, dtype: float}
+  - key: "V::LINE2V0"
+    name: "LINE2V0"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010002, dtype: bool}
+      - {field: "M", cid: 2A1D0002, dtype: float}
+  - key: "V::LINE2V1"
+    name: "LINE2V1"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010003, dtype: bool}
+      - {field: "M", cid: 2A1D0003, dtype: float}
+  - key: "V::LINE2V10"
+    name: "LINE2V10"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010004, dtype: bool}
+      - {field: "M", cid: 2A1D0004, dtype: float}
+  - key: "V::LINE2V1005"
+    name: "LINE2V1005"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01001B, dtype: bool}
+      - {field: "M", cid: 2A510002, dtype: float}
+  - key: "V::LINE2V11"
+    name: "LINE2V11"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010005, dtype: bool}
+      - {field: "M", cid: 2A1D0005, dtype: float}
+  - key: "V::LINE2V12"
+    name: "LINE2V12"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010006, dtype: bool}
+      - {field: "M", cid: 2A220000, dtype: float}
+  - key: "V::LINE2V13"
+    name: "LINE2V13"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010008, dtype: bool}
+      - {field: "M", cid: 2A220001, dtype: float}
+  - key: "V::LINE2V15"
+    name: "LINE2V15"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010018, dtype: bool}
+      - {field: "M", cid: 2A510000, dtype: float}
+  - key: "V::LINE2V2"
+    name: "LINE2V2"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010009, dtype: bool}
+      - {field: "M", cid: 2A310000, dtype: float}
+  - key: "V::LINE2V2002"
+    name: "LINE2V2002"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010017, dtype: bool}
+      - {field: "M", cid: 2A4D0002, dtype: float}
+  - key: "V::LINE2V2003"
+    name: "LINE2V2003"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01001C, dtype: bool}
+      - {field: "M", cid: 2A630000, dtype: float}
+  - key: "V::LINE2V2004"
+    name: "LINE2V2004"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01001A, dtype: bool}
+      - {field: "M", cid: 2A510001, dtype: float}
+  - key: "V::LINE2V2006"
+    name: "LINE2V2006"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01001D, dtype: bool}
+      - {field: "M", cid: 2A630001, dtype: float}
+  - key: "V::LINE2V2007"
+    name: "LINE2V2007"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01001F, dtype: bool}
+      - {field: "M", cid: 2A630002, dtype: float}
+  - key: "V::LINE2V2008"
+    name: "LINE2V2008"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010020, dtype: bool}
+      - {field: "M", cid: 2A750006, dtype: float}
+  - key: "V::LINE2V2009"
+    name: "LINE2V2009"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010021, dtype: bool}
+      - {field: "M", cid: 2A750007, dtype: float}
+  - key: "V::LINE2V3"
+    name: "LINE2V3"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01000A, dtype: bool}
+      - {field: "M", cid: 2A310001, dtype: float}
+  - key: "V::LINE2V4"
+    name: "LINE2V4"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01000B, dtype: bool}
+      - {field: "M", cid: 2A320000, dtype: float}
+  - key: "V::LINE2V5"
+    name: "LINE2V5"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01000C, dtype: bool}
+      - {field: "M", cid: 2A320001, dtype: float}
+  - key: "V::LINE2V6"
+    name: "LINE2V6"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01000D, dtype: bool}
+      - {field: "M", cid: 2A360006, dtype: float}
+  - key: "V::LINE2V7"
+    name: "LINE2V7"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01000E, dtype: bool}
+      - {field: "M", cid: 2A360007, dtype: float}
+  - key: "V::LINE2V8"
+    name: "LINE2V8"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01000F, dtype: bool}
+      - {field: "M", cid: 2A360009, dtype: float}
+  - key: "V::LINE2V9"
+    name: "LINE2V9"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010010, dtype: bool}
+      - {field: "M", cid: 2A370006, dtype: float}
+  - key: "V::LINE3V0"
+    name: "LINE3V0"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010022, dtype: bool}
+      - {field: "M", cid: 2A4D0000, dtype: float}
+  - key: "V::LINE3V1"
+    name: "LINE3V1"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010023, dtype: bool}
+      - {field: "M", cid: 2A4D0001, dtype: float}
+  - key: "V::LINE3V10"
+    name: "LINE3V10"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010024, dtype: bool}
+      - {field: "M", cid: 2A4D0002, dtype: float}
+  - key: "V::LINE3V1001"
+    name: "LINE3V1001"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01003F, dtype: bool}
+      - {field: "M", cid: 2A220000, dtype: float}
+  - key: "V::LINE3V1002"
+    name: "LINE3V1002"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A0D0000, dtype: bool}
+      - {field: "M", cid: 2A310000, dtype: float}
+  - key: "V::LINE3V11"
+    name: "LINE3V11"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010025, dtype: bool}
+      - {field: "M", cid: 2A750008, dtype: float}
+  - key: "V::LINE3V12"
+    name: "LINE3V12"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010026, dtype: bool}
+      - {field: "M", cid: 2A050000, dtype: float}
+  - key: "V::LINE3V13"
+    name: "LINE3V13"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010027, dtype: bool}
+      - {field: "M", cid: 2A050001, dtype: float}
+  - key: "V::LINE3V15"
+    name: "LINE3V15"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010040, dtype: bool}
+      - {field: "M", cid: 2A220001, dtype: float}
+  - key: "V::LINE3V2"
+    name: "LINE3V2"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010028, dtype: bool}
+      - {field: "M", cid: 2A050002, dtype: float}
+  - key: "V::LINE3V3"
+    name: "LINE3V3"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010029, dtype: bool}
+      - {field: "M", cid: 2A0A0006, dtype: float}
+  - key: "V::LINE3V4"
+    name: "LINE3V4"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A01002B, dtype: bool}
+      - {field: "M", cid: 2A0A0007, dtype: float}
+  - key: "V::LINE3V5"
+    name: "LINE3V5"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010032, dtype: bool}
+      - {field: "M", cid: 2A0A0009, dtype: float}
+  - key: "V::LINE3V6"
+    name: "LINE3V6"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010033, dtype: bool}
+      - {field: "M", cid: 2A0D0001, dtype: float}
+  - key: "V::LINE3V7"
+    name: "LINE3V7"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010034, dtype: bool}
+      - {field: "M", cid: 2A130000, dtype: float}
+  - key: "V::LINE3V8"
+    name: "LINE3V8"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010036, dtype: bool}
+      - {field: "M", cid: 2A130001, dtype: float}
+  - key: "V::LINE3V9"
+    name: "LINE3V9"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A010037, dtype: bool}
+      - {field: "M", cid: 2A130002, dtype: float}
+  - key: "V::LINE4V0"
+    name: "LINE4V0"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A0D0002, dtype: bool}
+      - {field: "M", cid: 2A310001, dtype: float}
+  - key: "V::LINE4V1"
+    name: "LINE4V1"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A150000, dtype: bool}
+      - {field: "M", cid: 2A320000, dtype: float}
+  - key: "V::LINE4V10"
+    name: "LINE4V10"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A150001, dtype: bool}
+      - {field: "M", cid: 2A320001, dtype: float}
+  - key: "V::LINE4V1001"
+    name: "LINE4V1001"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A58000E, dtype: bool}
+      - {field: "M", cid: 2A750006, dtype: float}
+  - key: "V::LINE4V11"
+    name: "LINE4V11"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A150002, dtype: bool}
+      - {field: "M", cid: 2A360006, dtype: float}
+  - key: "V::LINE4V12"
+    name: "LINE4V12"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A150003, dtype: bool}
+      - {field: "M", cid: 2A360007, dtype: float}
+  - key: "V::LINE4V13"
+    name: "LINE4V13"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A150004, dtype: bool}
+      - {field: "M", cid: 2A360009, dtype: float}
+  - key: "V::LINE4V15"
+    name: "LINE4V15"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580010, dtype: bool}
+      - {field: "M", cid: 2A750007, dtype: float}
+  - key: "V::LINE4V2"
+    name: "LINE4V2"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A150005, dtype: bool}
+      - {field: "M", cid: 2A370006, dtype: float}
+  - key: "V::LINE4V3"
+    name: "LINE4V3"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A150006, dtype: bool}
+      - {field: "M", cid: 2A370007, dtype: float}
+  - key: "V::LINE4V4"
+    name: "LINE4V4"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A150007, dtype: bool}
+      - {field: "M", cid: 2A3B0000, dtype: float}
+  - key: "V::LINE4V5"
+    name: "LINE4V5"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A150008, dtype: bool}
+      - {field: "M", cid: 2A3B0001, dtype: float}
+  - key: "V::LINE4V6"
+    name: "LINE4V6"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A15000E, dtype: bool}
+      - {field: "M", cid: 2A3B0002, dtype: float}
+  - key: "V::LINE4V7"
+    name: "LINE4V7"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A1F0000, dtype: bool}
+      - {field: "M", cid: 2A4D0000, dtype: float}
+  - key: "V::LINE4V8"
+    name: "LINE4V8"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A1F0001, dtype: bool}
+      - {field: "M", cid: 2A4D0001, dtype: float}
+  - key: "V::LINE4V9"
+    name: "LINE4V9"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A1F0002, dtype: bool}
+      - {field: "M", cid: 2A4D0002, dtype: float}
+  - key: "V::LINE5V0"
+    name: "LINE5V0"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580011, dtype: bool}
+      - {field: "M", cid: 2A750008, dtype: float}
+  - key: "V::LINE5V1"
+    name: "LINE5V1"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580012, dtype: bool}
+      - {field: "M", cid: 2A050000, dtype: float}
+  - key: "V::LINE5V10"
+    name: "LINE5V10"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580013, dtype: bool}
+      - {field: "M", cid: 2A050001, dtype: float}
+  - key: "V::LINE5V1001"
+    name: "LINE5V1001"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A58004E, dtype: bool}
+      - {field: "M", cid: 2A310001, dtype: float}
+  - key: "V::LINE5V11"
+    name: "LINE5V11"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A58002A, dtype: bool}
+      - {field: "M", cid: 2A050002, dtype: float}
+  - key: "V::LINE5V12"
+    name: "LINE5V12"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A58002B, dtype: bool}
+      - {field: "M", cid: 2A0A0006, dtype: float}
+  - key: "V::LINE5V13"
+    name: "LINE5V13"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A58002D, dtype: bool}
+      - {field: "M", cid: 2A0A0007, dtype: float}
+  - key: "V::LINE5V15"
+    name: "LINE5V15"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A58004F, dtype: bool}
+      - {field: "M", cid: 2A320000, dtype: float}
+  - key: "V::LINE5V2"
+    name: "LINE5V2"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A58002E, dtype: bool}
+      - {field: "M", cid: 2A0A0009, dtype: float}
+  - key: "V::LINE5V3"
+    name: "LINE5V3"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A58002F, dtype: bool}
+      - {field: "M", cid: 2A0D0001, dtype: float}
+  - key: "V::LINE5V4"
+    name: "LINE5V4"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580030, dtype: bool}
+      - {field: "M", cid: 2A130000, dtype: float}
+  - key: "V::LINE5V5"
+    name: "LINE5V5"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580031, dtype: bool}
+      - {field: "M", cid: 2A130001, dtype: float}
+  - key: "V::LINE5V6"
+    name: "LINE5V6"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580032, dtype: bool}
+      - {field: "M", cid: 2A130002, dtype: float}
+  - key: "V::LINE5V7"
+    name: "LINE5V7"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580034, dtype: bool}
+      - {field: "M", cid: 2A1D0000, dtype: float}
+  - key: "V::LINE5V8"
+    name: "LINE5V8"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580035, dtype: bool}
+      - {field: "M", cid: 2A1D0001, dtype: float}
+  - key: "V::LINE5V9"
+    name: "LINE5V9"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580036, dtype: bool}
+      - {field: "M", cid: 2A1D0002, dtype: float}
+  - key: "V::LINE6V0"
+    name: "LINE6V0"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580059, dtype: bool}
+      - {field: "M", cid: 2A320001, dtype: float}
+  - key: "V::LINE6V1"
+    name: "LINE6V1"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580062, dtype: bool}
+      - {field: "M", cid: 2A360006, dtype: float}
+  - key: "V::LINE6V10"
+    name: "LINE6V10"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A580066, dtype: bool}
+      - {field: "M", cid: 2A360007, dtype: float}
+  - key: "V::LINE6V1001"
+    name: "LINE6V1001"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B0051, dtype: bool}
+      - {field: "M", cid: 2A750008, dtype: float}
+  - key: "V::LINE6V11"
+    name: "LINE6V11"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B0009, dtype: bool}
+      - {field: "M", cid: 2A360009, dtype: float}
+  - key: "V::LINE6V12"
+    name: "LINE6V12"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B000A, dtype: bool}
+      - {field: "M", cid: 2A370006, dtype: float}
+  - key: "V::LINE6V13"
+    name: "LINE6V13"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B000B, dtype: bool}
+      - {field: "M", cid: 2A370007, dtype: float}
+  - key: "V::LINE6V15"
+    name: "LINE6V15"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B0052, dtype: bool}
+      - {field: "M", cid: 2A050000, dtype: float}
+  - key: "V::LINE6V2"
+    name: "LINE6V2"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B000C, dtype: bool}
+      - {field: "M", cid: 2A3B0000, dtype: float}
+  - key: "V::LINE6V3"
+    name: "LINE6V3"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B0029, dtype: bool}
+      - {field: "M", cid: 2A3B0001, dtype: float}
+  - key: "V::LINE6V4"
+    name: "LINE6V4"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B002A, dtype: bool}
+      - {field: "M", cid: 2A3B0002, dtype: float}
+  - key: "V::LINE6V5"
+    name: "LINE6V5"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B002B, dtype: bool}
+      - {field: "M", cid: 2A4D0000, dtype: float}
+  - key: "V::LINE6V6"
+    name: "LINE6V6"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B002C, dtype: bool}
+      - {field: "M", cid: 2A4D0001, dtype: float}
+  - key: "V::LINE6V7"
+    name: "LINE6V7"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B002D, dtype: bool}
+      - {field: "M", cid: 2A4D0002, dtype: float}
+  - key: "V::LINE6V8"
+    name: "LINE6V8"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B002E, dtype: bool}
+      - {field: "M", cid: 2A510000, dtype: float}
+  - key: "V::LINE6V9"
+    name: "LINE6V9"
+    dev_type: "V"
+    fields:
+      - {field: "ST", cid: 2A5B0038, dtype: bool}
+      - {field: "M", cid: 2A510001, dtype: float}
+  - key: "VC::LINE1VC14"
+    name: "LINE1VC14"
+    dev_type: "VC"
+    fields:
+      - {field: "ST", cid: 2A010004, dtype: bool}
+      - {field: "M", cid: 2A4D0001, dtype: float}
+      - {field: "V", cid: 2A050000, dtype: float}
+  - key: "VC::LINE2VC14"
+    name: "LINE2VC14"
+    dev_type: "VC"
+    fields:
+      - {field: "ST", cid: 2A010005, dtype: bool}
+      - {field: "M", cid: 2A4D0002, dtype: float}
+      - {field: "V", cid: 2A050001, dtype: float}
+      - {field: "BLINK", cid: 2A310001, dtype: float}
+      - {field: "NAMUR_ST", cid: 2A320001, dtype: float}
+      - {field: "OPENED", cid: 2A360007, dtype: float}
+      - {field: "CLOSED", cid: 2A370006, dtype: float}
+  - key: "VC::LINE3VC14"
+    name: "LINE3VC14"
+    dev_type: "VC"
+    fields:
+      - {field: "ST", cid: 2A010006, dtype: bool}
+      - {field: "M", cid: 2A510000, dtype: float}
+      - {field: "V", cid: 2A050002, dtype: float}
+      - {field: "BLINK", cid: 2A320000, dtype: float}
+      - {field: "NAMUR_ST", cid: 2A360006, dtype: float}
+      - {field: "OPENED", cid: 2A360009, dtype: float}
+      - {field: "CLOSED", cid: 2A370007, dtype: float}
+  - key: "VC::LINE4VC14"
+    name: "LINE4VC14"
+    dev_type: "VC"
+    fields:
+      - {field: "ST", cid: 2A010008, dtype: bool}
+      - {field: "M", cid: 2A510001, dtype: float}
+      - {field: "V", cid: 2A630001, dtype: float}
+  - key: "VC::LINE5VC14"
+    name: "LINE5VC14"
+    dev_type: "VC"
+    fields:
+      - {field: "ST", cid: 2A010009, dtype: bool}
+      - {field: "M", cid: 2A510002, dtype: float}
+      - {field: "V", cid: 2A630002, dtype: float}
+  - key: "VC::LINE6VC14"
+    name: "LINE6VC14"
+    dev_type: "VC"
+    fields:
+      - {field: "ST", cid: 2A01000A, dtype: bool}
+      - {field: "M", cid: 2A630000, dtype: float}
+      - {field: "V", cid: 2A750006, dtype: float}
+  - key: "Параметры_линии::OBJECT1"
+    name: "OBJECT1"
+    dev_type: "Параметры_линии"
+    fields:
+      - {field: "RT_PAR_F[1]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[2]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[3]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[4]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[5]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[6]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[7]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[8]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[9]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[10]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[11]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[12]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[13]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[14]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[15]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[16]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[17]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[18]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[19]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[20]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[21]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[22]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[23]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[24]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[25]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[26]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[27]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[28]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[29]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[30]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[31]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[32]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[33]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[34]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[35]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[36]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[37]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[38]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[39]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[40]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[41]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[42]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[43]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[44]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[45]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[46]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[47]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[48]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[49]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[50]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[51]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[52]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[53]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[54]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[55]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[56]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[57]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[58]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[59]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[60]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[61]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[62]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[63]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[64]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[65]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[66]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[67]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[68]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[69]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[70]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[71]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[72]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[73]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[74]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[75]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[76]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[77]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[78]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[79]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[80]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[81]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[82]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[83]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[84]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[85]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[86]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[87]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[88]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[89]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[90]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[91]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[92]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[93]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[94]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[95]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[96]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[97]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[98]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[99]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[100]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[101]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[102]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[103]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[104]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[105]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[106]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[107]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[108]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[109]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[110]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[111]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[112]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[113]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[114]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[115]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[116]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[117]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[118]", cid: 2A4D0000, dtype: float}
+  - key: "Параметры_линии::OBJECT2"
+    name: "OBJECT2"
+    dev_type: "Параметры_линии"
+    fields:
+      - {field: "RT_PAR_F[1]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[2]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[3]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[4]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[5]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[6]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[7]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[8]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[9]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[10]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[11]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[12]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[13]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[14]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[15]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[16]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[17]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[18]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[19]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[20]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[21]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[22]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[23]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[24]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[25]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[26]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[27]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[28]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[29]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[30]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[31]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[32]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[33]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[34]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[35]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[36]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[37]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[38]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[39]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[40]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[41]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[42]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[43]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[44]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[45]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[46]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[47]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[48]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[49]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[50]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[51]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[52]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[53]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[54]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[55]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[56]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[57]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[58]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[59]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[60]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[61]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[62]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[63]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[64]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[65]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[66]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[67]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[68]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[69]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[70]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[71]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[72]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[73]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[74]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[75]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[76]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[77]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[78]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[79]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[80]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[81]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[82]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[83]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[84]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[85]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[86]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[87]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[88]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[89]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[90]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[91]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[92]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[93]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[94]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[95]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[96]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[97]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[98]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[99]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[100]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[101]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[102]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[103]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[104]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[105]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[106]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[107]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[108]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[109]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[110]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[111]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[112]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[113]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[114]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[115]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[116]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[117]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[118]", cid: 2A3B0001, dtype: float}
+  - key: "Параметры_линии::OBJECT3"
+    name: "OBJECT3"
+    dev_type: "Параметры_линии"
+    fields:
+      - {field: "RT_PAR_F[10]", cid: 2A370009, dtype: bool}
+      - {field: "RT_PAR_F[1]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[2]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[3]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[4]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[5]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[6]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[7]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[8]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[9]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[11]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[12]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[13]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[14]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[15]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[16]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[17]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[18]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[19]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[20]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[21]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[22]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[23]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[24]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[25]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[26]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[27]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[28]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[29]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[30]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[31]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[32]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[33]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[34]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[35]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[36]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[37]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[38]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[39]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[40]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[41]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[42]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[43]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[44]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[45]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[46]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[47]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[48]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[49]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[50]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[51]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[52]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[53]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[54]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[55]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[56]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[57]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[58]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[59]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[60]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[61]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[62]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[63]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[64]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[65]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[66]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[67]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[68]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[69]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[70]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[71]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[72]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[73]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[74]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[75]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[76]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[77]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[78]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[79]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[80]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[81]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[82]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[83]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[84]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[85]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[86]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[87]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[88]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[89]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[90]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[91]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[92]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[93]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[94]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[95]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[96]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[97]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[98]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[99]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[100]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[101]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[102]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[103]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[104]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[105]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[106]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[107]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[108]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[109]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[110]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[111]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[112]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[113]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[114]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[115]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[116]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[117]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[118]", cid: 2A220001, dtype: float}
+  - key: "Параметры_линии::OBJECT4"
+    name: "OBJECT4"
+    dev_type: "Параметры_линии"
+    fields:
+      - {field: "RT_PAR_F[1]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[2]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[3]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[4]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[5]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[6]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[7]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[8]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[9]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[10]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[11]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[12]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[13]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[14]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[15]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[16]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[17]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[18]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[19]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[20]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[21]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[22]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[23]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[24]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[25]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[26]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[27]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[28]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[29]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[30]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[31]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[32]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[33]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[34]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[35]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[36]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[37]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[38]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[39]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[40]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[41]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[42]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[43]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[44]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[45]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[46]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[47]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[48]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[49]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[50]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[51]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[52]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[53]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[54]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[55]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[56]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[57]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[58]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[59]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[60]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[61]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[62]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[63]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[64]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[65]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[66]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[67]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[68]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[69]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[70]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[71]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[72]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[73]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[74]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[75]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[76]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[77]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[78]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[79]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[80]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[81]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[82]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[83]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[84]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[85]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[86]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[87]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[88]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[89]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[90]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[91]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[92]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[93]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[94]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[95]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[96]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[97]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[98]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[99]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[100]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[101]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[102]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[103]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[104]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[105]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[106]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[107]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[108]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[109]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[110]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[111]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[112]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[113]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[114]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[115]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[116]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[117]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[118]", cid: 2A130002, dtype: float}
+  - key: "Параметры_линии::OBJECT5"
+    name: "OBJECT5"
+    dev_type: "Параметры_линии"
+    fields:
+      - {field: "RT_PAR_F[1]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[2]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[3]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[4]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[5]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[6]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[7]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[8]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[9]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[10]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[11]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[12]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[13]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[14]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[15]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[16]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[17]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[18]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[19]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[20]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[21]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[22]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[23]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[24]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[25]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[26]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[27]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[28]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[29]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[30]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[31]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[32]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[33]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[34]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[35]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[36]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[37]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[38]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[39]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[40]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[41]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[42]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[43]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[44]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[45]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[46]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[47]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[48]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[49]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[50]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[51]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[52]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[53]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[54]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[55]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[56]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[57]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[58]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[59]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[60]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[61]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[62]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[63]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[64]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[65]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[66]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[67]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[68]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[69]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[70]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[71]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[72]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[73]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[74]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[75]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[76]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[77]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[78]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[79]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[80]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[81]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[82]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[83]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[84]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[85]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[86]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[87]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[88]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[89]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[90]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[91]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[92]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[93]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[94]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[95]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[96]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[97]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[98]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[99]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[100]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[101]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[102]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[103]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[104]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[105]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[106]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[107]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[108]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[109]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[110]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[111]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[112]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[113]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[114]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[115]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[116]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[117]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[118]", cid: 2A050001, dtype: float}
+  - key: "Параметры_линии::OBJECT6"
+    name: "OBJECT6"
+    dev_type: "Параметры_линии"
+    fields:
+      - {field: "RT_PAR_F[1]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[2]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[3]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[4]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[5]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[6]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[7]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[8]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[9]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[10]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[11]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[12]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[13]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[14]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[15]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[16]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[17]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[18]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[19]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[20]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[21]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[22]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[23]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[24]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[25]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[26]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[27]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[28]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[29]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[30]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[31]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[32]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[33]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[34]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[35]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[36]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[37]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[38]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[39]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[40]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[41]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[42]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[43]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[44]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[45]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[46]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[47]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[48]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[49]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[50]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[51]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[52]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[53]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[54]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[55]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[56]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[57]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[58]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[59]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[60]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[61]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[62]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[63]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[64]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[65]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[66]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[67]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[68]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[69]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[70]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[71]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[72]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[73]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[74]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[75]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[76]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[77]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[78]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[79]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[80]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[81]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[82]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[83]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[84]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[85]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[86]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[87]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[88]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[89]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[90]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[91]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[92]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[93]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[94]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[95]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[96]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[97]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[98]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[99]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[100]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[101]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[102]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[103]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[104]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[105]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[106]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[107]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[108]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[109]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[110]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[111]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[112]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[113]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[114]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[115]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[116]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[117]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[118]", cid: 2A510002, dtype: float}
+  - key: "Параметры_самоочистки_станции::OBJECT1"
+    name: "OBJECT1"
+    dev_type: "Параметры_самоочистки_станции"
+    fields:
+      - {field: "PAR_SELFCLEAN[1]", cid: 2A050001, dtype: float}
+      - {field: "PAR_SELFCLEAN[2]", cid: 2A050002, dtype: float}
+      - {field: "PAR_SELFCLEAN[3]", cid: 2A0A0006, dtype: float}
+      - {field: "PAR_SELFCLEAN[4]", cid: 2A0A0007, dtype: float}
+      - {field: "PAR_SELFCLEAN[5]", cid: 2A0A0009, dtype: float}
+      - {field: "PAR_SELFCLEAN[6]", cid: 2A0D0001, dtype: float}
+      - {field: "PAR_SELFCLEAN[7]", cid: 2A130000, dtype: float}
+      - {field: "PAR_SELFCLEAN[8]", cid: 2A130001, dtype: float}
+      - {field: "PAR_SELFCLEAN[9]", cid: 2A130002, dtype: float}
+      - {field: "PAR_SELFCLEAN[10]", cid: 2A1D0000, dtype: float}
+      - {field: "PAR_SELFCLEAN[11]", cid: 2A1D0001, dtype: float}
+      - {field: "PAR_SELFCLEAN[12]", cid: 2A1D0002, dtype: float}
+      - {field: "PAR_SELFCLEAN[13]", cid: 2A1D0003, dtype: float}
+      - {field: "PAR_SELFCLEAN[14]", cid: 2A1D0004, dtype: float}
+      - {field: "PAR_SELFCLEAN[15]", cid: 2A1D0005, dtype: float}
+      - {field: "PAR_SELFCLEAN[16]", cid: 2A220000, dtype: float}
+      - {field: "PAR_SELFCLEAN[17]", cid: 2A220001, dtype: float}
+      - {field: "PAR_SELFCLEAN[18]", cid: 2A310000, dtype: float}
+      - {field: "PAR_SELFCLEAN[19]", cid: 2A310001, dtype: float}
+  - key: "Параметры_станции::OBJECT1"
+    name: "OBJECT1"
+    dev_type: "Параметры_станции"
+    fields:
+      - {field: "PAR_MAIN[1].P_CZAD_S", cid: 2A050000, dtype: float}
+      - {field: "PAR_MAIN[2].P_CMIN_S", cid: 2A050001, dtype: float}
+      - {field: "PAR_MAIN[3].P_CKANAL_S", cid: 2A050002, dtype: float}
+      - {field: "PAR_MAIN[4].P_CZAD_K", cid: 2A0A0006, dtype: float}
+      - {field: "PAR_MAIN[5].P_CMIN_K", cid: 2A0A0007, dtype: float}
+      - {field: "PAR_MAIN[6].P_CKANAL_K", cid: 2A0A0009, dtype: float}
+      - {field: "PAR_MAIN[7]", cid: 2A0D0001, dtype: float}
+      - {field: "PAR_MAIN[8]", cid: 2A130000, dtype: float}
+      - {field: "PAR_MAIN[9]", cid: 2A130001, dtype: float}
+      - {field: "PAR_MAIN[10]", cid: 2A130002, dtype: float}
+      - {field: "PAR_MAIN[11].P_ALFK", cid: 2A1D0000, dtype: float}
+      - {field: "PAR_MAIN[12].P_ALFS", cid: 2A1D0001, dtype: float}
+      - {field: "PAR_MAIN[13].P_K_S", cid: 2A1D0002, dtype: float}
+      - {field: "PAR_MAIN[14].P_K_К", cid: 2A1D0003, dtype: float}
+      - {field: "PAR_MAIN[15].P_RO_S", cid: 2A1D0004, dtype: float}
+      - {field: "PAR_MAIN[16].P_RO_SK", cid: 2A1D0005, dtype: float}
+      - {field: "PAR_MAIN[17].P_CONC25S", cid: 2A220000, dtype: float}
+      - {field: "PAR_MAIN[18].P_MS25K", cid: 2A220001, dtype: float}
+      - {field: "PAR_MAIN[19].P_CONC25K", cid: 2A310000, dtype: float}
+      - {field: "PAR_MAIN[20].P_MS25K", cid: 2A310001, dtype: float}
+      - {field: "PAR_MAIN[21].P_MS25W", cid: 2A320000, dtype: float}
+      - {field: "PAR_MAIN[22].P_TM_CHKC", cid: 2A320001, dtype: float}
+      - {field: "PAR_MAIN[23].P_TM_CIRC_RR", cid: 2A360006, dtype: float}
+      - {field: "PAR_MAIN[24].P_T_RR", cid: 2A360007, dtype: float}
+      - {field: "PAR_MAIN[25].P_VTANKS", cid: 2A360009, dtype: float}
+      - {field: "PAR_MAIN[26].P_VTANKK", cid: 2A370006, dtype: float}
+      - {field: "PAR_MAIN[27].P_VTANKW", cid: 2A370007, dtype: float}
+      - {field: "PAR_MAIN[28].P_PDNK", cid: 2A3B0000, dtype: float}
+      - {field: "PAR_MAIN[29].P_PDNS", cid: 2A3B0001, dtype: float}
+      - {field: "PAR_MAIN[30].P_FLOW_RR", cid: 2A3B0002, dtype: float}
+      - {field: "PAR_MAIN[31].P_MAX_BULK_FOR_CAUSTIC", cid: 2A4D0000, dtype: float}
+      - {field: "PAR_MAIN[32].P_MAX_BULK_FOR_ACID", cid: 2A4D0001, dtype: float}
+      - {field: "PAR_MAIN[33].P33", cid: 2A510000, dtype: float}
+      - {field: "PAR_MAIN[34].P34", cid: 2A510001, dtype: float}
+      - {field: "PAR_MAIN[35].P35", cid: 2A510002, dtype: float}
+  - key: "Параметры_станции::SYSTEM"
+    name: "SYSTEM"
+    dev_type: "Параметры_станции"
+    fields:
+      - {field: "P_V_OFF_DELAY_TIME", cid: 2A4D0002, dtype: float}
+  - key: "Редактируемый_рецепт_линии::OBJECT1"
+    name: "OBJECT1"
+    dev_type: "Редактируемый_рецепт_линии"
+    fields:
+      - {field: "REC_PAR[1]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[2]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[3]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[4]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[5]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[6]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[7]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[8]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[9]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[10]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[11]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[12]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[13]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[14]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[15]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[16]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[17]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[18]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[19]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[20]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[21]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[22]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[23]", cid: 2A1D0001, dtype: float}
+      - {field: "REC_PAR[24]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[25]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[26]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[27]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[28]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[29]", cid: 2A220001, dtype: float}
+      - {field: "REC_PAR[30]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[31]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[32]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[33]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[34]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[35]", cid: 2A360007, dtype: float}
+      - {field: "REC_PAR[36]", cid: 2A360009, dtype: float}
+      - {field: "REC_PAR[37]", cid: 2A370006, dtype: float}
+      - {field: "REC_PAR[38]", cid: 2A370007, dtype: float}
+      - {field: "REC_PAR[39]", cid: 2A3B0000, dtype: float}
+      - {field: "REC_PAR[40]", cid: 2A3B0001, dtype: float}
+      - {field: "REC_PAR[41]", cid: 2A3B0002, dtype: float}
+      - {field: "REC_PAR[42]", cid: 2A4D0000, dtype: float}
+      - {field: "REC_PAR[43]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[44]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[45]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[46]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[47]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[48]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[49]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[50]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[51]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[52]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[53]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[54]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[55]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[56]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[57]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[58]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[59]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[60]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[61]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[62]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[63]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[64]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[65]", cid: 2A1D0001, dtype: float}
+      - {field: "REC_PAR[66]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[67]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[68]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[69]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[70]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[71]", cid: 2A220001, dtype: float}
+      - {field: "REC_PAR[72]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[73]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[74]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[75]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[76]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[77]", cid: 2A360007, dtype: float}
+      - {field: "REC_PAR[78]", cid: 2A360009, dtype: float}
+      - {field: "REC_PAR[79]", cid: 2A370006, dtype: float}
+      - {field: "REC_PAR[80]", cid: 2A370007, dtype: float}
+      - {field: "REC_PAR[81]", cid: 2A3B0000, dtype: float}
+      - {field: "REC_PAR[82]", cid: 2A3B0001, dtype: float}
+      - {field: "REC_PAR[83]", cid: 2A3B0002, dtype: float}
+      - {field: "REC_PAR[84]", cid: 2A4D0000, dtype: float}
+      - {field: "REC_PAR[85]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[86]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[87]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[88]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[89]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[90]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[91]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[92]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[93]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[94]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[95]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[96]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[97]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[98]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[99]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[100]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[101]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[102]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[103]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[104]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[105]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[106]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[107]", cid: 2A1D0001, dtype: float}
+      - {field: "REC_PAR[108]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[109]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[110]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[111]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[112]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[113]", cid: 2A220001, dtype: float}
+      - {field: "REC_PAR[114]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[115]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[116]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[117]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[118]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[119]", cid: 2A360007, dtype: float}
+      - {field: "REC_PAR[120]", cid: 2A360009, dtype: float}
+  - key: "Редактируемый_рецепт_линии::OBJECT2"
+    name: "OBJECT2"
+    dev_type: "Редактируемый_рецепт_линии"
+    fields:
+      - {field: "REC_PAR[1]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[2]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[3]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[4]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[5]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[6]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[7]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[8]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[9]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[10]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[11]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[12]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[13]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[14]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[15]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[16]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[17]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[18]", cid: 2A1D0001, dtype: float}
+      - {field: "REC_PAR[19]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[20]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[21]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[22]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[23]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[24]", cid: 2A220001, dtype: float}
+      - {field: "REC_PAR[25]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[26]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[27]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[28]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[29]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[30]", cid: 2A360007, dtype: float}
+      - {field: "REC_PAR[31]", cid: 2A360009, dtype: float}
+      - {field: "REC_PAR[32]", cid: 2A370006, dtype: float}
+      - {field: "REC_PAR[33]", cid: 2A370007, dtype: float}
+      - {field: "REC_PAR[34]", cid: 2A3B0000, dtype: float}
+      - {field: "REC_PAR[35]", cid: 2A3B0001, dtype: float}
+      - {field: "REC_PAR[36]", cid: 2A3B0002, dtype: float}
+      - {field: "REC_PAR[37]", cid: 2A4D0000, dtype: float}
+      - {field: "REC_PAR[38]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[39]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[40]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[41]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[42]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[43]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[44]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[45]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[46]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[47]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[48]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[49]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[50]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[51]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[52]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[53]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[54]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[55]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[56]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[57]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[58]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[59]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[60]", cid: 2A1D0001, dtype: float}
+      - {field: "REC_PAR[61]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[62]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[63]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[64]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[65]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[66]", cid: 2A220001, dtype: float}
+      - {field: "REC_PAR[67]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[68]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[69]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[70]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[71]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[72]", cid: 2A360007, dtype: float}
+      - {field: "REC_PAR[73]", cid: 2A360009, dtype: float}
+      - {field: "REC_PAR[74]", cid: 2A370006, dtype: float}
+      - {field: "REC_PAR[75]", cid: 2A370007, dtype: float}
+      - {field: "REC_PAR[76]", cid: 2A3B0000, dtype: float}
+      - {field: "REC_PAR[77]", cid: 2A3B0001, dtype: float}
+      - {field: "REC_PAR[78]", cid: 2A3B0002, dtype: float}
+      - {field: "REC_PAR[79]", cid: 2A4D0000, dtype: float}
+      - {field: "REC_PAR[80]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[81]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[82]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[83]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[84]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[85]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[86]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[87]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[88]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[89]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[90]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[91]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[92]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[93]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[94]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[95]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[96]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[97]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[98]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[99]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[100]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[101]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[102]", cid: 2A1D0001, dtype: float}
+      - {field: "REC_PAR[103]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[104]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[105]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[106]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[107]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[108]", cid: 2A220001, dtype: float}
+      - {field: "REC_PAR[109]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[110]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[111]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[112]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[113]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[114]", cid: 2A360007, dtype: float}
+      - {field: "REC_PAR[115]", cid: 2A360009, dtype: float}
+      - {field: "REC_PAR[116]", cid: 2A370006, dtype: float}
+      - {field: "REC_PAR[117]", cid: 2A370007, dtype: float}
+      - {field: "REC_PAR[118]", cid: 2A3B0000, dtype: float}
+      - {field: "REC_PAR[119]", cid: 2A3B0001, dtype: float}
+      - {field: "REC_PAR[120]", cid: 2A3B0002, dtype: float}
+  - key: "Редактируемый_рецепт_линии::OBJECT3"
+    name: "OBJECT3"
+    dev_type: "Редактируемый_рецепт_линии"
+    fields:
+      - {field: "REC_PAR[1]", cid: 2A4D0000, dtype: float}
+      - {field: "REC_PAR[2]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[3]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[4]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[5]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[6]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[7]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[8]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[9]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[10]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[11]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[12]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[13]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[14]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[15]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[16]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[17]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[18]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[19]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[20]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[21]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[22]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[23]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[24]", cid: 2A1D0001, dtype: float}
+      - {field: "REC_PAR[25]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[26]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[27]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[28]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[29]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[30]", cid: 2A220001, dtype: float}
+      - {field: "REC_PAR[31]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[32]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[33]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[34]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[35]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[36]", cid: 2A360007, dtype: float}
+      - {field: "REC_PAR[37]", cid: 2A360009, dtype: float}
+      - {field: "REC_PAR[38]", cid: 2A370006, dtype: float}
+      - {field: "REC_PAR[39]", cid: 2A370007, dtype: float}
+      - {field: "REC_PAR[40]", cid: 2A3B0000, dtype: float}
+      - {field: "REC_PAR[41]", cid: 2A3B0001, dtype: float}
+      - {field: "REC_PAR[42]", cid: 2A3B0002, dtype: float}
+      - {field: "REC_PAR[43]", cid: 2A4D0000, dtype: float}
+      - {field: "REC_PAR[44]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[45]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[46]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[47]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[48]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[49]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[50]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[51]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[52]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[53]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[54]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[55]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[56]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[57]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[58]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[59]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[60]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[61]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[62]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[63]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[64]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[65]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[66]", cid: 2A1D0001, dtype: float}
+      - {field: "REC_PAR[67]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[68]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[69]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[70]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[71]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[72]", cid: 2A220001, dtype: float}
+      - {field: "REC_PAR[73]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[74]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[75]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[76]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[77]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[78]", cid: 2A360007, dtype: float}
+      - {field: "REC_PAR[79]", cid: 2A360009, dtype: float}
+      - {field: "REC_PAR[80]", cid: 2A370006, dtype: float}
+      - {field: "REC_PAR[81]", cid: 2A370007, dtype: float}
+      - {field: "REC_PAR[82]", cid: 2A3B0000, dtype: float}
+      - {field: "REC_PAR[83]", cid: 2A3B0001, dtype: float}
+      - {field: "REC_PAR[84]", cid: 2A3B0002, dtype: float}
+      - {field: "REC_PAR[85]", cid: 2A4D0000, dtype: float}
+      - {field: "REC_PAR[86]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[87]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[88]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[89]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[90]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[91]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[92]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[93]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[94]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[95]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[96]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[97]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[98]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[99]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[100]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[101]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[102]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[103]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[104]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[105]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[106]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[107]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[108]", cid: 2A1D0001, dtype: float}
+      - {field: "REC_PAR[109]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[110]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[111]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[112]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[113]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[114]", cid: 2A220001, dtype: float}
+      - {field: "REC_PAR[115]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[116]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[117]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[118]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[119]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[120]", cid: 2A360007, dtype: float}
+  - key: "Редактируемый_рецепт_линии::OBJECT4"
+    name: "OBJECT4"
+    dev_type: "Редактируемый_рецепт_линии"
+    fields:
+      - {field: "REC_PAR[1]", cid: 2A360009, dtype: float}
+      - {field: "REC_PAR[2]", cid: 2A370006, dtype: float}
+      - {field: "REC_PAR[3]", cid: 2A370007, dtype: float}
+      - {field: "REC_PAR[4]", cid: 2A3B0000, dtype: float}
+      - {field: "REC_PAR[5]", cid: 2A3B0001, dtype: float}
+      - {field: "REC_PAR[6]", cid: 2A3B0002, dtype: float}
+      - {field: "REC_PAR[7]", cid: 2A4D0000, dtype: float}
+      - {field: "REC_PAR[8]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[9]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[10]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[11]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[12]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[13]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[14]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[15]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[16]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[17]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[18]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[19]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[20]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[21]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[22]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[23]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[24]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[25]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[26]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[27]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[28]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[29]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[30]", cid: 2A1D0001, dtype: float}
+      - {field: "REC_PAR[31]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[32]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[33]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[34]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[35]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[36]", cid: 2A220001, dtype: float}
+      - {field: "REC_PAR[37]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[38]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[39]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[40]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[41]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[42]", cid: 2A360007, dtype: float}
+      - {field: "REC_PAR[43]", cid: 2A360009, dtype: float}
+      - {field: "REC_PAR[44]", cid: 2A370006, dtype: float}
+      - {field: "REC_PAR[45]", cid: 2A370007, dtype: float}
+      - {field: "REC_PAR[46]", cid: 2A3B0000, dtype: float}
+      - {field: "REC_PAR[47]", cid: 2A3B0001, dtype: float}
+      - {field: "REC_PAR[48]", cid: 2A3B0002, dtype: float}
+      - {field: "REC_PAR[49]", cid: 2A4D0000, dtype: float}
+      - {field: "REC_PAR[50]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[51]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[52]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[53]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[54]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[55]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[56]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[57]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[58]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[59]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[60]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[61]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[62]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[63]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[64]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[65]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[66]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[67]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[68]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[69]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[70]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[71]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[72]", cid: 2A1D0001, dtype: float}
+      - {field: "REC_PAR[73]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[74]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[75]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[76]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[77]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[78]", cid: 2A220001, dtype: float}
+      - {field: "REC_PAR[79]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[80]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[81]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[82]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[83]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[84]", cid: 2A360007, dtype: float}
+      - {field: "REC_PAR[85]", cid: 2A360009, dtype: float}
+      - {field: "REC_PAR[86]", cid: 2A370006, dtype: float}
+      - {field: "REC_PAR[87]", cid: 2A370007, dtype: float}
+      - {field: "REC_PAR[88]", cid: 2A3B0000, dtype: float}
+      - {field: "REC_PAR[89]", cid: 2A3B0001, dtype: float}
+      - {field: "REC_PAR[90]", cid: 2A3B0002, dtype: float}
+      - {field: "REC_PAR[91]", cid: 2A4D0000, dtype: float}
+      - {field: "REC_PAR[92]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[93]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[94]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[95]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[96]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[97]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[98]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[99]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[100]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[101]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[102]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[103]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[104]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[105]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[106]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[107]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[108]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[109]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[110]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[111]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[112]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[113]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[114]", cid: 2A1D0001, dtype: float}
+      - {field: "REC_PAR[115]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[116]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[117]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[118]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[119]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[120]", cid: 2A220001, dtype: float}
+  - key: "Редактируемый_рецепт_линии::OBJECT5"
+    name: "OBJECT5"
+    dev_type: "Редактируемый_рецепт_линии"
+    fields:
+      - {field: "REC_PAR[1]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[2]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[3]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[4]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[5]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[6]", cid: 2A360007, dtype: float}
+      - {field: "REC_PAR[7]", cid: 2A360009, dtype: float}
+      - {field: "REC_PAR[8]", cid: 2A370006, dtype: float}
+      - {field: "REC_PAR[9]", cid: 2A370007, dtype: float}
+      - {field: "REC_PAR[10]", cid: 2A3B0000, dtype: float}
+      - {field: "REC_PAR[11]", cid: 2A3B0001, dtype: float}
+      - {field: "REC_PAR[12]", cid: 2A3B0002, dtype: float}
+      - {field: "REC_PAR[13]", cid: 2A4D0000, dtype: float}
+      - {field: "REC_PAR[14]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[15]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[16]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[17]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[18]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[19]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[20]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[21]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[22]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[23]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[24]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[25]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[26]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[27]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[28]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[29]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[30]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[31]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[32]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[33]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[34]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[35]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[36]", cid: 2A1D0001, dtype: float}
+      - {field: "REC_PAR[37]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[38]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[39]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[40]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[41]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[42]", cid: 2A220001, dtype: float}
+      - {field: "REC_PAR[43]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[44]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[45]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[46]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[47]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[48]", cid: 2A360007, dtype: float}
+      - {field: "REC_PAR[49]", cid: 2A360009, dtype: float}
+      - {field: "REC_PAR[50]", cid: 2A370006, dtype: float}
+      - {field: "REC_PAR[51]", cid: 2A370007, dtype: float}
+      - {field: "REC_PAR[52]", cid: 2A3B0000, dtype: float}
+      - {field: "REC_PAR[53]", cid: 2A3B0001, dtype: float}
+      - {field: "REC_PAR[54]", cid: 2A3B0002, dtype: float}
+      - {field: "REC_PAR[55]", cid: 2A4D0000, dtype: float}
+      - {field: "REC_PAR[56]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[57]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[58]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[59]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[60]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[61]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[62]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[63]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[64]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[65]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[66]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[67]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[68]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[69]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[70]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[71]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[72]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[73]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[74]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[75]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[76]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[77]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[78]", cid: 2A1D0001, dtype: float}
+      - {field: "REC_PAR[79]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[80]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[81]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[82]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[83]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[84]", cid: 2A220001, dtype: float}
+      - {field: "REC_PAR[85]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[86]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[87]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[88]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[89]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[90]", cid: 2A360007, dtype: float}
+      - {field: "REC_PAR[91]", cid: 2A360009, dtype: float}
+      - {field: "REC_PAR[92]", cid: 2A370006, dtype: float}
+      - {field: "REC_PAR[93]", cid: 2A370007, dtype: float}
+      - {field: "REC_PAR[94]", cid: 2A3B0000, dtype: float}
+      - {field: "REC_PAR[95]", cid: 2A3B0001, dtype: float}
+      - {field: "REC_PAR[96]", cid: 2A3B0002, dtype: float}
+      - {field: "REC_PAR[97]", cid: 2A4D0000, dtype: float}
+      - {field: "REC_PAR[98]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[99]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[100]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[101]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[102]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[103]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[104]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[105]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[106]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[107]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[108]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[109]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[110]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[111]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[112]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[113]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[114]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[115]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[116]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[117]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[118]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[119]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[120]", cid: 2A1D0001, dtype: float}
+  - key: "Редактируемый_рецепт_линии::OBJECT6"
+    name: "OBJECT6"
+    dev_type: "Редактируемый_рецепт_линии"
+    fields:
+      - {field: "REC_PAR[1]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[2]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[3]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[4]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[5]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[6]", cid: 2A220001, dtype: float}
+      - {field: "REC_PAR[7]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[8]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[9]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[10]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[11]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[12]", cid: 2A360007, dtype: float}
+      - {field: "REC_PAR[13]", cid: 2A360009, dtype: float}
+      - {field: "REC_PAR[14]", cid: 2A370006, dtype: float}
+      - {field: "REC_PAR[15]", cid: 2A370007, dtype: float}
+      - {field: "REC_PAR[16]", cid: 2A3B0000, dtype: float}
+      - {field: "REC_PAR[17]", cid: 2A3B0001, dtype: float}
+      - {field: "REC_PAR[18]", cid: 2A3B0002, dtype: float}
+      - {field: "REC_PAR[19]", cid: 2A4D0000, dtype: float}
+      - {field: "REC_PAR[20]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[21]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[22]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[23]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[24]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[25]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[26]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[27]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[28]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[29]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[30]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[31]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[32]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[33]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[34]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[35]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[36]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[37]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[38]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[39]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[40]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[41]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[42]", cid: 2A1D0001, dtype: float}
+      - {field: "REC_PAR[43]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[44]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[45]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[46]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[47]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[48]", cid: 2A220001, dtype: float}
+      - {field: "REC_PAR[49]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[50]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[51]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[52]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[53]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[54]", cid: 2A360007, dtype: float}
+      - {field: "REC_PAR[55]", cid: 2A360009, dtype: float}
+      - {field: "REC_PAR[56]", cid: 2A370006, dtype: float}
+      - {field: "REC_PAR[57]", cid: 2A370007, dtype: float}
+      - {field: "REC_PAR[58]", cid: 2A3B0000, dtype: float}
+      - {field: "REC_PAR[59]", cid: 2A3B0001, dtype: float}
+      - {field: "REC_PAR[60]", cid: 2A3B0002, dtype: float}
+      - {field: "REC_PAR[61]", cid: 2A4D0000, dtype: float}
+      - {field: "REC_PAR[62]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[63]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[64]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[65]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[66]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[67]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[68]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[69]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[70]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[71]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[72]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[73]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[74]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[75]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[76]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[77]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[78]", cid: 2A0A0009, dtype: float}
+      - {field: "REC_PAR[79]", cid: 2A0D0001, dtype: float}
+      - {field: "REC_PAR[80]", cid: 2A130000, dtype: float}
+      - {field: "REC_PAR[81]", cid: 2A130001, dtype: float}
+      - {field: "REC_PAR[82]", cid: 2A130002, dtype: float}
+      - {field: "REC_PAR[83]", cid: 2A1D0000, dtype: float}
+      - {field: "REC_PAR[84]", cid: 2A1D0001, dtype: float}
+      - {field: "REC_PAR[85]", cid: 2A1D0002, dtype: float}
+      - {field: "REC_PAR[86]", cid: 2A1D0003, dtype: float}
+      - {field: "REC_PAR[87]", cid: 2A1D0004, dtype: float}
+      - {field: "REC_PAR[88]", cid: 2A1D0005, dtype: float}
+      - {field: "REC_PAR[89]", cid: 2A220000, dtype: float}
+      - {field: "REC_PAR[90]", cid: 2A220001, dtype: float}
+      - {field: "REC_PAR[91]", cid: 2A310000, dtype: float}
+      - {field: "REC_PAR[92]", cid: 2A310001, dtype: float}
+      - {field: "REC_PAR[93]", cid: 2A320000, dtype: float}
+      - {field: "REC_PAR[94]", cid: 2A320001, dtype: float}
+      - {field: "REC_PAR[95]", cid: 2A360006, dtype: float}
+      - {field: "REC_PAR[96]", cid: 2A360007, dtype: float}
+      - {field: "REC_PAR[97]", cid: 2A360009, dtype: float}
+      - {field: "REC_PAR[98]", cid: 2A370006, dtype: float}
+      - {field: "REC_PAR[99]", cid: 2A370007, dtype: float}
+      - {field: "REC_PAR[100]", cid: 2A3B0000, dtype: float}
+      - {field: "REC_PAR[101]", cid: 2A3B0001, dtype: float}
+      - {field: "REC_PAR[102]", cid: 2A3B0002, dtype: float}
+      - {field: "REC_PAR[103]", cid: 2A4D0000, dtype: float}
+      - {field: "REC_PAR[104]", cid: 2A4D0001, dtype: float}
+      - {field: "REC_PAR[105]", cid: 2A4D0002, dtype: float}
+      - {field: "REC_PAR[106]", cid: 2A510000, dtype: float}
+      - {field: "REC_PAR[107]", cid: 2A510001, dtype: float}
+      - {field: "REC_PAR[108]", cid: 2A510002, dtype: float}
+      - {field: "REC_PAR[109]", cid: 2A630000, dtype: float}
+      - {field: "REC_PAR[110]", cid: 2A630001, dtype: float}
+      - {field: "REC_PAR[111]", cid: 2A630002, dtype: float}
+      - {field: "REC_PAR[112]", cid: 2A750006, dtype: float}
+      - {field: "REC_PAR[113]", cid: 2A750007, dtype: float}
+      - {field: "REC_PAR[114]", cid: 2A750008, dtype: float}
+      - {field: "REC_PAR[115]", cid: 2A050000, dtype: float}
+      - {field: "REC_PAR[116]", cid: 2A050001, dtype: float}
+      - {field: "REC_PAR[117]", cid: 2A050002, dtype: float}
+      - {field: "REC_PAR[118]", cid: 2A0A0006, dtype: float}
+      - {field: "REC_PAR[119]", cid: 2A0A0007, dtype: float}
+      - {field: "REC_PAR[120]", cid: 2A0A0009, dtype: float}
+  - key: "Статистика_линии::OBJECT1"
+    name: "OBJECT1"
+    dev_type: "Статистика_линии"
+    fields:
+      - {field: "RT_PAR_F[119]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[120]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[121]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[122]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[123]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[124]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[125]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[126]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[127]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[128]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[129]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[130]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[131]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[132]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[133]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[134]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[135]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[136]", cid: 2A050000, dtype: float}
+  - key: "Статистика_линии::OBJECT2"
+    name: "OBJECT2"
+    dev_type: "Статистика_линии"
+    fields:
+      - {field: "RT_PAR_F[119]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[120]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[121]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[122]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[123]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[124]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[125]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[126]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[127]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[128]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[129]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[130]", cid: 2A220001, dtype: float}
+      - {field: "RT_PAR_F[131]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[132]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[133]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[134]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[135]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[136]", cid: 2A360007, dtype: float}
+  - key: "Статистика_линии::OBJECT3"
+    name: "OBJECT3"
+    dev_type: "Статистика_линии"
+    fields:
+      - {field: "RT_PAR_F[119]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[120]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[121]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[122]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[123]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[124]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[125]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[126]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[127]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[128]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[129]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[130]", cid: 2A510002, dtype: float}
+      - {field: "RT_PAR_F[131]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[132]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[133]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[134]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[135]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[136]", cid: 2A750008, dtype: float}
+  - key: "Статистика_линии::OBJECT4"
+    name: "OBJECT4"
+    dev_type: "Статистика_линии"
+    fields:
+      - {field: "RT_PAR_F[119]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[120]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[121]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[122]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[123]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[124]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[125]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[126]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[127]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[128]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[129]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[130]", cid: 2A1D0001, dtype: float}
+      - {field: "RT_PAR_F[131]", cid: 2A1D0002, dtype: float}
+      - {field: "RT_PAR_F[132]", cid: 2A1D0003, dtype: float}
+      - {field: "RT_PAR_F[133]", cid: 2A1D0004, dtype: float}
+      - {field: "RT_PAR_F[134]", cid: 2A1D0005, dtype: float}
+      - {field: "RT_PAR_F[135]", cid: 2A220000, dtype: float}
+      - {field: "RT_PAR_F[136]", cid: 2A220001, dtype: float}
+  - key: "Статистика_линии::OBJECT5"
+    name: "OBJECT5"
+    dev_type: "Статистика_линии"
+    fields:
+      - {field: "RT_PAR_F[119]", cid: 2A310000, dtype: float}
+      - {field: "RT_PAR_F[120]", cid: 2A310001, dtype: float}
+      - {field: "RT_PAR_F[121]", cid: 2A320000, dtype: float}
+      - {field: "RT_PAR_F[122]", cid: 2A320001, dtype: float}
+      - {field: "RT_PAR_F[123]", cid: 2A360006, dtype: float}
+      - {field: "RT_PAR_F[124]", cid: 2A360007, dtype: float}
+      - {field: "RT_PAR_F[125]", cid: 2A360009, dtype: float}
+      - {field: "RT_PAR_F[126]", cid: 2A370006, dtype: float}
+      - {field: "RT_PAR_F[127]", cid: 2A370007, dtype: float}
+      - {field: "RT_PAR_F[128]", cid: 2A3B0000, dtype: float}
+      - {field: "RT_PAR_F[129]", cid: 2A3B0001, dtype: float}
+      - {field: "RT_PAR_F[130]", cid: 2A3B0002, dtype: float}
+      - {field: "RT_PAR_F[131]", cid: 2A4D0000, dtype: float}
+      - {field: "RT_PAR_F[132]", cid: 2A4D0001, dtype: float}
+      - {field: "RT_PAR_F[133]", cid: 2A4D0002, dtype: float}
+      - {field: "RT_PAR_F[134]", cid: 2A510000, dtype: float}
+      - {field: "RT_PAR_F[135]", cid: 2A510001, dtype: float}
+      - {field: "RT_PAR_F[136]", cid: 2A510002, dtype: float}
+  - key: "Статистика_линии::OBJECT6"
+    name: "OBJECT6"
+    dev_type: "Статистика_линии"
+    fields:
+      - {field: "RT_PAR_F[119]", cid: 2A630000, dtype: float}
+      - {field: "RT_PAR_F[120]", cid: 2A630001, dtype: float}
+      - {field: "RT_PAR_F[121]", cid: 2A630002, dtype: float}
+      - {field: "RT_PAR_F[122]", cid: 2A750006, dtype: float}
+      - {field: "RT_PAR_F[123]", cid: 2A750007, dtype: float}
+      - {field: "RT_PAR_F[124]", cid: 2A750008, dtype: float}
+      - {field: "RT_PAR_F[125]", cid: 2A050000, dtype: float}
+      - {field: "RT_PAR_F[126]", cid: 2A050001, dtype: float}
+      - {field: "RT_PAR_F[127]", cid: 2A050002, dtype: float}
+      - {field: "RT_PAR_F[128]", cid: 2A0A0006, dtype: float}
+      - {field: "RT_PAR_F[129]", cid: 2A0A0007, dtype: float}
+      - {field: "RT_PAR_F[130]", cid: 2A0A0009, dtype: float}
+      - {field: "RT_PAR_F[131]", cid: 2A0D0001, dtype: float}
+      - {field: "RT_PAR_F[132]", cid: 2A130000, dtype: float}
+      - {field: "RT_PAR_F[133]", cid: 2A130001, dtype: float}
+      - {field: "RT_PAR_F[134]", cid: 2A130002, dtype: float}
+      - {field: "RT_PAR_F[135]", cid: 2A1D0000, dtype: float}
+      - {field: "RT_PAR_F[136]", cid: 2A1D0001, dtype: float}
+  - key: "Управляющие_каналы_линии::OBJECT1"
+    name: "OBJECT1"
+    dev_type: "Управляющие_каналы_линии"
+    fields:
+      - {field: "STATE", cid: 2A220000, dtype: float}
+      - {field: "OPER", cid: 2A220001, dtype: float}
+      - {field: "CMD", cid: 2A630000, dtype: float}
+      - {field: "CUR_REC", cid: 2A630001, dtype: float}
+      - {field: "LOADED_REC", cid: 2A630002, dtype: float}
+      - {field: "REC_LIST", cid: 2A750006, dtype: float}
+      - {field: "PRG_LIST", cid: 2A750007, dtype: float}
+      - {field: "CUR_PRG", cid: 2A750008, dtype: float}
+  - key: "Управляющие_каналы_линии::OBJECT2"
+    name: "OBJECT2"
+    dev_type: "Управляющие_каналы_линии"
+    fields:
+      - {field: "STATE", cid: 2A310000, dtype: float}
+      - {field: "OPER", cid: 2A310001, dtype: float}
+      - {field: "CMD", cid: 2A0A0007, dtype: float}
+      - {field: "CUR_REC", cid: 2A0A0009, dtype: float}
+      - {field: "LOADED_REC", cid: 2A0D0001, dtype: float}
+      - {field: "REC_LIST", cid: 2A130000, dtype: float}
+      - {field: "PRG_LIST", cid: 2A130001, dtype: float}
+      - {field: "CUR_PRG", cid: 2A130002, dtype: float}
+  - key: "Управляющие_каналы_линии::OBJECT3"
+    name: "OBJECT3"
+    dev_type: "Управляющие_каналы_линии"
+    fields:
+      - {field: "STATE", cid: 2A320000, dtype: float}
+      - {field: "OPER", cid: 2A320001, dtype: float}
+      - {field: "CMD", cid: 2A1D0000, dtype: float}
+      - {field: "CUR_REC", cid: 2A1D0001, dtype: float}
+      - {field: "LOADED_REC", cid: 2A1D0002, dtype: float}
+      - {field: "REC_LIST", cid: 2A1D0003, dtype: float}
+      - {field: "PRG_LIST", cid: 2A1D0004, dtype: float}
+      - {field: "CUR_PRG", cid: 2A1D0005, dtype: float}
+  - key: "Управляющие_каналы_линии::OBJECT4"
+    name: "OBJECT4"
+    dev_type: "Управляющие_каналы_линии"
+    fields:
+      - {field: "STATE", cid: 2A220000, dtype: float}
+      - {field: "OPER", cid: 2A220001, dtype: float}
+      - {field: "CMD", cid: 2A310000, dtype: float}
+      - {field: "CUR_REC", cid: 2A310001, dtype: float}
+      - {field: "LOADED_REC", cid: 2A320000, dtype: float}
+      - {field: "REC_LIST", cid: 2A320001, dtype: float}
+      - {field: "PRG_LIST", cid: 2A360006, dtype: float}
+      - {field: "CUR_PRG", cid: 2A360007, dtype: float}
+  - key: "Управляющие_каналы_линии::OBJECT5"
+    name: "OBJECT5"
+    dev_type: "Управляющие_каналы_линии"
+    fields:
+      - {field: "STATE", cid: 2A360009, dtype: float}
+      - {field: "OPER", cid: 2A370006, dtype: float}
+      - {field: "CMD", cid: 2A370007, dtype: float}
+      - {field: "CUR_REC", cid: 2A3B0000, dtype: float}
+      - {field: "LOADED_REC", cid: 2A3B0001, dtype: float}
+      - {field: "REC_LIST", cid: 2A3B0002, dtype: float}
+      - {field: "PRG_LIST", cid: 2A4D0000, dtype: float}
+      - {field: "CUR_PRG", cid: 2A4D0001, dtype: float}
+  - key: "Управляющие_каналы_линии::OBJECT6"
+    name: "OBJECT6"
+    dev_type: "Управляющие_каналы_линии"
+    fields:
+      - {field: "STATE", cid: 2A4D0002, dtype: float}
+      - {field: "OPER", cid: 2A510000, dtype: float}
+      - {field: "CMD", cid: 2A510001, dtype: float}
+      - {field: "CUR_REC", cid: 2A510002, dtype: float}
+      - {field: "LOADED_REC", cid: 2A630000, dtype: float}
+      - {field: "REC_LIST", cid: 2A630001, dtype: float}
+      - {field: "PRG_LIST", cid: 2A630002, dtype: float}
+      - {field: "CUR_PRG", cid: 2A750006, dtype: float}
+
+modbus_port: 5020
+replay:
+  enabled: true
+  data_path: data/archive_replay.pkl.gz
+  speed: 1.0
+  loop: true
