@@ -1,0 +1,77 @@
+# ============================================================================
+# CI/CD Rust-шлюза.
+#   На каждый push и PR: форматирование, clippy (предупреждения = ошибки), тесты.
+#   На push в main и теги vX.Y.Z: образ публикуется в GHCR.
+# ============================================================================
+name: CI/CD
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+
+jobs:
+  check:
+    name: Rust fmt, clippy & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      # Кэш ~/.cargo и target: librdkafka и Lua собираются из исходников, без кэша
+      # это несколько минут на каждый прогон.
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+  docker:
+    name: Build & publish image (GHCR)
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write          # право публиковать пакет в GHCR через GITHUB_TOKEN
+    steps:
+      - uses: actions/checkout@v7
+
+      # На PR образ только собирается (проверка Dockerfile), публикуется на push.
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      # Теги образа:
+      #   main       → :latest (+ :<sha>)
+      #   тег vX.Y.Z → :vX.Y.Z (+ :<sha>)
+      #   PR         → :ci-<sha> (не публикуется)
+      # Имя в GHCR — только строчными (EuZireael/SCADA_rust → euzireael/scada_rust).
+      - name: Compute image tags
+        id: meta
+        run: |
+          IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          case "${{ github.ref }}" in
+            refs/heads/main) TAGS="$IMAGE:latest $IMAGE:${{ github.sha }}" ;;
+            refs/tags/v*)    TAGS="$IMAGE:${{ github.ref_name }} $IMAGE:${{ github.sha }}" ;;
+            *)               TAGS="$IMAGE:ci-${{ github.sha }}" ;;
+          esac
+          ARGS=""; for t in $TAGS; do ARGS="$ARGS -t $t"; done
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "args=$ARGS" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        run: docker build ${{ steps.meta.outputs.args }} .
+
+      - name: Push image
+        if: github.event_name == 'push'
+        run: docker push -a ${{ steps.meta.outputs.image }}

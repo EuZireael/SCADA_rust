@@ -1,5 +1,7 @@
 # SCADA Gateway (Rust)
 
+[![CI/CD](https://github.com/EuZireael/SCADA_rust/actions/workflows/ci.yml/badge.svg)](https://github.com/EuZireael/SCADA_rust/actions/workflows/ci.yml)
+
 Шлюз сбора данных АСУ ТП на Rust — замена Java-шлюза из `scada-gateway`. Опрашивает
 контроллеры по **OPC UA**, **Modbus TCP** и **PAC** (driver-master, Savushkin/ptusa),
 публикует телеметрию, события и алармы в **Kafka** для монитора, принимает команды записи.
@@ -93,6 +95,12 @@ docker compose -f docker-compose.yml -f ../SCADA_rust/docker-compose.gateway-rs.
   REJECTED_TYPE_MISMATCH, дубль отброшен; обрыв и восстановление всех трёх контроллеров.
 - Эмулятор настоящего PAC (ptusa 2026.4.2.1, `scada-gateway/tools/ptusa_emulator.sh`):
   122/172 канала GOOD (50 — каналы, которых нет в реальном проекте ПЛК), запись применяется.
+
+## CI/CD
+
+`.github/workflows/ci.yml`: на каждый push и PR — `cargo fmt --check`, clippy (`-D warnings`),
+`cargo test`; на push в `main` и теги `vX.Y.Z` — образ `ghcr.io/euzireael/scada_rust`
+(`:latest`/`:vX.Y.Z` + `:<sha>`).
 
 ## Структура
 
