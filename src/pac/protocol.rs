@@ -38,10 +38,22 @@ pub fn build_request(pidx: u8, cmd: u8, extra: &[u8]) -> Vec<u8> {
     frame
 }
 
-/// zlib-распаковка тела ответа (C++-драйвер жмёт compress2 — стандартный zlib).
+/// Потолок распакованного ответа. Кадр PAC ≤ 64 КБ (длина — 16 бит), а zlib сжимает до ~1000:1, так что
+/// одним кадром без ограничения можно было бы раздуть память шлюза в десятки МБ ещё до исполнения Lua.
+/// Настоящий снимок станции (2647 каналов) — ~20 КБ.
+pub const MAX_INFLATED_BYTES: usize = 8 * 1024 * 1024;
+
+/// zlib-распаковка тела ответа (C++-драйвер жмёт compress2 — стандартный zlib), не больше
+/// [`MAX_INFLATED_BYTES`].
 pub fn inflate(data: &[u8]) -> std::io::Result<Vec<u8>> {
     let mut out = Vec::with_capacity(data.len() * 4);
-    ZlibDecoder::new(data).read_to_end(&mut out)?;
+    ZlibDecoder::new(data).take(MAX_INFLATED_BYTES as u64 + 1).read_to_end(&mut out)?;
+    if out.len() > MAX_INFLATED_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("ответ PAC после распаковки больше {} МБ", MAX_INFLATED_BYTES / (1024 * 1024)),
+        ));
+    }
     Ok(out)
 }
 
@@ -80,6 +92,17 @@ mod tests {
     fn zlib_round_trip() {
         let original = "t=\n\t{\n\tLINE1V0={M=0, ST=1},\n\t}\n".as_bytes();
         assert_eq!(inflate(&deflate(original)).unwrap(), original);
+    }
+
+    #[test]
+    fn zlib_bomb_is_rejected() {
+        // 32 МБ нулей сжимаются в десятки КБ — помещаются в один кадр PAC.
+        let bomb = deflate(&vec![0u8; 32 * 1024 * 1024]);
+        assert!(bomb.len() < 65535, "бомба помещается в один кадр: {} Б", bomb.len());
+        let err = inflate(&bomb).unwrap_err();
+        assert!(err.to_string().contains("МБ"), "{err}");
+        // Граница: ровно потолок проходит.
+        assert_eq!(inflate(&deflate(&vec![7u8; MAX_INFLATED_BYTES])).unwrap().len(), MAX_INFLATED_BYTES);
     }
 
     #[test]

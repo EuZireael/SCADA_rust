@@ -5,7 +5,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Serializer};
 
-use crate::config::{ServerConfig, TagConfig};
+use crate::config::{HistoryConfig, ServerConfig, TagConfig};
 
 /// Протокол, по которому тег читается и пишется.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +43,9 @@ impl ControllerKind {
 pub struct Tag {
     /// PK тега в БД шлюза (0 — работа без БД).
     pub id: i64,
+    /// Порядковый номер среди включённых тегов контроллера: по нему обработчик хранит состояние
+    /// тега (качество, последнее опубликованное значение…) вектором, а не хеш-таблицей по имени.
+    pub slot: usize,
     /// Полный путь канала = Kafka-key телеметрии = адрес команды монитора.
     pub name: String,
     pub node_id: String,
@@ -62,6 +65,8 @@ pub struct Tag {
     pub modbus_address: Option<i32>,
     pub modbus_type: Option<String>,
     pub modbus_unit_id: u8,
+    /// Переопределение фильтра истории (`history:` в controllers.yaml); пусто — умолчания.
+    pub history: HistoryConfig,
 }
 
 impl Tag {
@@ -69,6 +74,7 @@ impl Tag {
         let protocol_raw = cfg.protocol.clone().unwrap_or_else(|| "opcua".into());
         Tag {
             id: 0,
+            slot: 0,
             name: cfg.name.clone(),
             node_id: cfg.node_id.clone(),
             channel_id: cfg.channel_id,
@@ -87,6 +93,7 @@ impl Tag {
             modbus_address: cfg.modbus_address,
             modbus_type: cfg.modbus_type.clone(),
             modbus_unit_id: cfg.modbus_unit_id.unwrap_or(1),
+            history: cfg.history.clone().unwrap_or_default(),
         }
     }
 }
@@ -125,7 +132,13 @@ impl Controller {
             endpoint: cfg.endpoint.clone(),
             kind: ControllerKind::from_endpoint(&cfg.endpoint)?,
             enabled: cfg.enabled,
-            tags: cfg.tags.iter().filter(|t| t.enabled).map(|t| Arc::new(Tag::from_config(t))).collect(),
+            tags: cfg
+                .tags
+                .iter()
+                .filter(|t| t.enabled)
+                .enumerate()
+                .map(|(slot, t)| Arc::new(Tag { slot, ..Tag::from_config(t) }))
+                .collect(),
         })
     }
 
@@ -309,6 +322,7 @@ mod tests {
             modbus_address: None,
             modbus_type: None,
             modbus_unit_id: None,
+            history: None,
         };
         let mut s = ServerConfig {
             id: None,

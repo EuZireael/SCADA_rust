@@ -52,6 +52,10 @@ pub async fn connect(settings: &DbSettings) -> Result<PgPool> {
 /// контроллера; исчезнувшие из YAML удаляются. Одной транзакцией.
 pub async fn sync_config(pool: &PgPool, controllers: &mut [Controller], all_yaml_names: &[String]) -> Result<()> {
     let mut tx = pool.begin().await?;
+    // Пара горячего резерва на общей БД стартует одновременно: без блокировки оба экземпляра вставляли
+    // бы одни и те же контроллеры (нарушение UNIQUE → падение старта). Второй ждёт первого и видит
+    // готовые строки. Блокировка снимается с концом транзакции.
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('scada-gateway:config-sync'))").execute(&mut *tx).await?;
     let (mut created, mut updated, mut deleted) = (0, 0, 0);
     for ctrl in controllers.iter_mut() {
         let row = sqlx::query(
@@ -84,7 +88,9 @@ pub async fn sync_config(pool: &PgPool, controllers: &mut [Controller], all_yaml
                     sqlx::query(
                         "UPDATE tags SET name=$2, data_type=$3, polling_rate=$4, unit=$5, enabled=$6, min_value=$7,
                          max_value=$8, channel_id=$9, device_name=$10, field_name=$11, device_type=$12, protocol=$13,
-                         modbus_address=$14, modbus_type=$15, modbus_unit_id=$16, writable=$17, updated_at=now()
+                         modbus_address=$14, modbus_type=$15, modbus_unit_id=$16, writable=$17,
+                         history_deadband=$18, history_deadband_percent=$19, history_min_interval_ms=$20,
+                         history_max_interval_ms=$21, updated_at=now()
                          WHERE id=$1",
                     )
                     .bind(id)
@@ -104,6 +110,10 @@ pub async fn sync_config(pool: &PgPool, controllers: &mut [Controller], all_yaml
                     .bind(&t.modbus_type)
                     .bind(t.modbus_unit_id as i32)
                     .bind(t.writable)
+                    .bind(t.history.deadband)
+                    .bind(t.history.deadband_percent)
+                    .bind(t.history.min_interval_ms.map(|v| v as i64))
+                    .bind(t.history.max_interval_ms.map(|v| v as i64))
                     .execute(&mut *tx)
                     .await?;
                     id
@@ -113,8 +123,10 @@ pub async fn sync_config(pool: &PgPool, controllers: &mut [Controller], all_yaml
                     sqlx::query(
                         "INSERT INTO tags (controller_id, node_id, name, data_type, polling_rate, unit, enabled, min_value,
                          max_value, channel_id, device_name, field_name, device_type, protocol, modbus_address,
-                         modbus_type, modbus_unit_id, writable, record_device, created_at, updated_at)
-                         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,false,now(),now())
+                         modbus_type, modbus_unit_id, writable, record_device, history_deadband,
+                         history_deadband_percent, history_min_interval_ms, history_max_interval_ms,
+                         created_at, updated_at)
+                         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,false,$19,$20,$21,$22,now(),now())
                          RETURNING id",
                     )
                     .bind(ctrl.id).bind(&t.node_id)
@@ -122,6 +134,9 @@ pub async fn sync_config(pool: &PgPool, controllers: &mut [Controller], all_yaml
                     .bind(t.min_value).bind(t.max_value).bind(t.channel_id).bind(&t.device_name)
                     .bind(&t.field_name).bind(&t.device_type).bind(&t.protocol_raw).bind(t.modbus_address)
                     .bind(&t.modbus_type).bind(t.modbus_unit_id as i32).bind(t.writable)
+                    .bind(t.history.deadband).bind(t.history.deadband_percent)
+                    .bind(t.history.min_interval_ms.map(|v| v as i64))
+                    .bind(t.history.max_interval_ms.map(|v| v as i64))
                     .fetch_one(&mut *tx)
                     .await?
                     .get("id")

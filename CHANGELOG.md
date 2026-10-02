@@ -8,6 +8,45 @@
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-10-02
+
+Перенос наработок Java-шлюза: телеметрия «по исключению» (контракт монитора), горячее
+резервирование, пользовательские Lua-скрипты и станция мойки целиком по OPC UA.
+
+### Добавлено
+
+- **Телеметрия «по исключению»** (`GATEWAY_PUBLISH_*`): тег уходит в Kafka при первом значении,
+  смене качества, изменении за зону нечувствительности и раз в `full-resend-ms` (полная
+  отправка). Фильтр локальной истории (`GATEWAY_HISTORY_*`, блок `history:` тега, колонки
+  `tags.history_*`). Контракт — `docs/TELEMETRY_BY_EXCEPTION.md`. На стенде 54 800 тегов
+  (20 × 2740, 18 280 изменений/с): ≈25 % одного ядра, 125 МБ, без потерь.
+- **Горячее резервирование** (`GATEWAY_HA_*`): выборы через группу потребителей Kafka, резерв
+  опрашивает, но молчит; переключение при отказе ≈1,9 с (штатная остановка ≈0,6 с), новый
+  активный сразу шлёт все теги; `GET /api/ha`, метрика `scada_ha_active`, события `HotStandby`.
+  Команды: ручное назначение партиций, коммит позиции до исполнения, возраст команды
+  (`GATEWAY_COMMANDS_MAX_AGE_MS`, `REJECTED_EXPIRED`).
+- **Пользовательские скрипты Lua 5.1** (`config/scripts/`, `GATEWAY_SCRIPTS_*`): `process` для
+  входящих значений, `write` для команд, состояние на канал, цепочки, горячая перезагрузка;
+  песочница с лимитами памяти и времени; `GET /api/scripts`.
+- **Станция мойки по OPC UA**: `config/stations/BN1_MCA1.yaml` (1834 канала), фасад
+  `ptusa-opcua/` (прошивка ptusa → OPC UA, запись через `set_cmd`), `docker-compose.moika.yml`,
+  `up-moika.sh`, `tools/station-config/`, `docs/MONITOR_INTEGRATION.md`.
+- **Нагрузочный стенд** `loadtest/loadsim`; метрики `scada_telemetry_suppressed_total`,
+  `scada_process_seconds`, `scada_poll_seconds`, `scada_poll_overruns_total`,
+  `scada_script_errors_total`, `scada_scripts_bound_tags`.
+- `CONTROLLERS_CONFIG` (форма `file:/путь`), `KAFKA_TOPICS_REPLICATION`.
+
+### Изменено
+
+- Все узлы OPC UA вернули BAD ⇒ связь с контроллером считается потерянной.
+- `${NAME}` в `controllers.yaml` без значения и без умолчания — ошибка старта (`${NAME:}` — пусто).
+- Миграция `0002`: колонки `history_*` в `tags` (совместима с Flyway V2 Java-шлюза).
+
+### Безопасность
+
+- Песочница Lua: убраны `coroutine` (в сопрограмме не работает хук времени), `getfenv`/`setfenv`,
+  `newproxy`, `collectgarbage`; лимит распаковки ответа PAC — 8 МБ (zlib-бомба).
+
 ## [0.1.0] — 2026-09-24
 
 Первый релиз: шлюз АСУ ТП на Rust — замена Java-шлюза `savushkin-dev/scada-gateway` с теми же

@@ -8,9 +8,10 @@ use crate::model::{Quality, TagValue, Timestamp};
 /// Телеметрия → `scada.tags`, ключ = путь канала. Ровно три поля (аналог OPC UA DataValue):
 /// всё статическое монитор берёт из своего реестра по ключу.
 #[derive(Debug, Serialize)]
-pub struct TelemetryMessage {
-    /// Типизированное значение; `null` — кадр потери связи (quality=BAD).
-    pub value: Option<TagValue>,
+pub struct TelemetryMessage<'a> {
+    /// Типизированное значение; `null` — кадр потери связи (quality=BAD). Ссылка: сообщение живёт
+    /// до сериализации, копировать значение (строки) на каждую публикацию незачем.
+    pub value: Option<&'a TagValue>,
     pub quality: Quality,
     /// Момент снятия значения (sourceTimestamp OPC UA, момент чтения Modbus/PAC).
     pub timestamp: Timestamp,
@@ -65,6 +66,25 @@ pub struct CommandMessage {
     #[serde(default)]
     pub value: Value,
     pub requested_by: Option<String>,
+    /// Момент отправки команды (ISO-8601 или epoch-секунды) — для возраста, если у записи Kafka нет метки.
+    pub timestamp: Option<Value>,
+}
+
+impl CommandMessage {
+    /// Метка из тела команды в миллисекундах epoch.
+    pub fn sent_at_ms(&self) -> Option<i64> {
+        match self.timestamp.as_ref()? {
+            Value::String(s) => chrono::DateTime::parse_from_rfc3339(s).ok().map(|t| t.timestamp_millis()),
+            Value::Number(n) => n.as_f64().map(|secs| (secs * 1000.0) as i64),
+            _ => None,
+        }
+    }
+}
+
+/// Возраст команды, мс: по метке записи Kafka (её ставит продюсер монитора), иначе по `timestamp`
+/// в теле. `None` — возраст неизвестен (такую команду исполняем).
+pub fn command_age_ms(cmd: &CommandMessage, record_timestamp_ms: Option<i64>, now_ms: i64) -> Option<i64> {
+    record_timestamp_ms.filter(|t| *t > 0).or_else(|| cmd.sent_at_ms()).map(|sent| now_ms - sent)
 }
 
 /// Результат команды → `scada-command-results`, ключ = tagName (или commandId).
@@ -92,7 +112,8 @@ mod tests {
 
     #[test]
     fn telemetry_wire_is_exactly_three_fields() {
-        let msg = TelemetryMessage { value: Some(TagValue::F32(1.07)), quality: Quality::Good, timestamp: ts() };
+        let v = TagValue::F32(1.07);
+        let msg = TelemetryMessage { value: Some(&v), quality: Quality::Good, timestamp: ts() };
         assert_eq!(
             serde_json::to_string(&msg).unwrap(),
             r#"{"value":1.07,"quality":"GOOD","timestamp":1790233762.061208074}"#
@@ -113,6 +134,24 @@ mod tests {
         assert_eq!(cmd.tag_name.as_deref(), Some("A.B.LINE1V0.M"));
         assert_eq!(cmd.value, serde_json::json!(1));
         assert!(cmd.tag_id.is_none() && cmd.data_type.is_none());
+    }
+
+    #[test]
+    fn command_age_prefers_record_timestamp_then_body() {
+        let mut cmd: CommandMessage =
+            serde_json::from_str(r#"{"commandId":"c","tagName":"T","value":1,"timestamp":"2026-09-24T08:00:00Z"}"#)
+                .unwrap();
+        let sent = chrono::DateTime::parse_from_rfc3339("2026-09-24T08:00:00Z").unwrap().timestamp_millis();
+        assert_eq!(command_age_ms(&cmd, None, sent + 61_000), Some(61_000), "по телу команды");
+        assert_eq!(
+            command_age_ms(&cmd, Some(sent + 50_000), sent + 61_000),
+            Some(11_000),
+            "метка записи Kafka приоритетнее"
+        );
+        cmd.timestamp = None;
+        assert_eq!(command_age_ms(&cmd, None, sent), None, "нет метки — возраст неизвестен");
+        cmd.timestamp = Some(serde_json::json!(1790233762.5));
+        assert_eq!(cmd.sent_at_ms(), Some(1790233762500));
     }
 
     #[test]

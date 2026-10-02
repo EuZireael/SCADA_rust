@@ -26,6 +26,9 @@ FROM debian:bookworm-slim
 RUN groupadd -r scada && useradd -r -g scada -u 1001 scada
 WORKDIR /app
 COPY --from=build /usr/local/bin/scada-gateway /app/scada-gateway
+# Пользовательские Lua-скрипты (gateway.scripts.dir=scripts → /app/scripts): в образе — примеры без привязок;
+# на стенде папка монтируется томом, правки подхватываются без перезапуска.
+COPY --chown=scada:scada config/scripts /app/scripts
 ENV CONTROLLERS_YAML=/app/config/controllers.yaml
 EXPOSE 8888
 USER scada

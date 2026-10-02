@@ -1,0 +1,109 @@
+# ============================================================================
+# Замена docker-compose.gateway.yml монитора (scada-editor-backend): вместо Python-симулятора —
+# эмулятор мойки (настоящая прошивка ptusa со станцией BN1-МСА1) + OPC UA-фасад; шлюз читает и
+# пишет ВСЕ каналы станции только по OPC UA. Инструкция — docs/MONITOR_INTEGRATION.md.
+#
+#   MOIKA_PROJECT=<папка проекта ПЛК, с подмодулем bin> SCADA_GATEWAY_PATH=<этот репозиторий> \
+#     docker compose -f docker-compose.yml -f docker-compose.gateway.yml up -d
+#
+# Отличия от прежнего файла монитора:
+#   • scada-simulator (Python) → scada-ptusa (прошивка) + scada-opcua (фасад);
+#   • шлюз берёт каналы из config/stations/BN1_MCA1.yaml (1834 канала, объектные пути монитора),
+#     а не из встроенного controllers.yaml стенда;
+#   • Kafka, топики, кадры BAD — как в прежнем файле.
+#   • шлюз — Rust (этот репозиторий): образ собирается из Dockerfile, jar и mvn не нужны.
+# ============================================================================
+services:
+  scada-postgres:
+    image: postgres:16
+    container_name: scada-postgres
+    environment:
+      POSTGRES_DB: scada_db
+      POSTGRES_USER: scada_user
+      POSTGRES_PASSWORD: scada_password
+    volumes:
+      - scada_pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scada_user -d scada_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  # Настоящая прошивка ptusa с проектом станции (без модулей ввода-вывода: логика живая).
+  # glibc ≥ 2.38 — debian:stable; проект монтируется только на чтение.
+  scada-ptusa:
+    image: debian:stable-slim
+    container_name: scada-ptusa
+    working_dir: /project
+    volumes:
+      - "${MOIKA_PROJECT:?укажите MOIKA_PROJECT — папку проекта ПЛК (BN1-CIP1, с подмодулем bin)}:/project:ro"
+    command: >-
+      sh -c "cp bin/linux-default/Release/ptusa_main /tmp/ptusa_main && chmod +x /tmp/ptusa_main &&
+             exec /tmp/ptusa_main main.plua --no_io --opc off --path . --sys_path ./sys --extra_paths ./dairy-sys"
+    ports:
+      - "10100:10000"          # driver-master — для отладки
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/10000"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  # OPC UA-фасад: все каналы станции узлами ns=2;s=<прибор>.<поле>, запись — командой прошивке.
+  scada-opcua:
+    build:
+      context: ${SCADA_GATEWAY_PATH}/ptusa-opcua
+    container_name: scada-opcua
+    environment:
+      PAC_HOST: scada-ptusa
+      PAC_PORT: "10000"
+      STATION_CONFIG: /config/station.yaml
+      OPCUA_ENDPOINT: "opc.tcp://localhost:4840"
+    volumes:
+      - ${SCADA_GATEWAY_PATH}/config/stations/BN1_MCA1.yaml:/config/station.yaml:ro
+    ports:
+      - "4840:4840"            # OPC UA станции (например, UaExpert)
+    depends_on:
+      scada-ptusa:
+        condition: service_healthy
+    restart: unless-stopped
+
+  scada-gateway:
+    build:
+      context: ${SCADA_GATEWAY_PATH}
+    container_name: scada-gateway
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://scada-postgres:5432/scada_db"
+      SPRING_DATASOURCE_USERNAME: "scada_user"
+      SPRING_DATASOURCE_PASSWORD: "scada_password"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "${SCADA_GATEWAY_KAFKA:-kafka:19092}"
+      KAFKA_TOPICS_TELEMETRY: "${KAFKA_TAGS_TOPIC:-scada.tags}"
+      KAFKA_TOPICS_COMMANDS: "${KAFKA_COMMANDS_TOPIC:-scada-commands}"
+      KAFKA_TOPICS_COMMAND_RESULTS: "${KAFKA_COMMAND_RESULTS_TOPIC:-scada-command-results}"
+      GATEWAY_SEND_BAD_FRAMES: "${GATEWAY_SEND_BAD_FRAMES:-true}"
+      # Каналы станции — файлом, без пересборки образа; адрес контроллера — сервис фасада.
+      CONTROLLERS_YAML: "/app/config/station.yaml"
+      PLC_HOST: "scada-opcua"
+    volumes:
+      - ${SCADA_GATEWAY_PATH}/config/stations/BN1_MCA1.yaml:/app/config/station.yaml:ro
+      # Пользовательские Lua-скрипты обработки значений: правки подхватываются без перезапуска.
+      - ${SCADA_GATEWAY_PATH}/config/scripts:/app/scripts:ro
+    ports:
+      - "8888:8888"
+    depends_on:
+      scada-postgres:
+        condition: service_healthy
+      scada-opcua:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/scada-gateway", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  scada_pgdata:

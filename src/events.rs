@@ -15,6 +15,7 @@ use tracing::warn;
 
 use crate::db::{self, EventRow, TelemetryRow};
 use crate::kafka::KafkaOut;
+use crate::leadership::Leadership;
 use crate::messages::EventMessage;
 use crate::metrics::Metrics;
 use crate::model::Timestamp;
@@ -86,6 +87,7 @@ pub async fn run_writer(
     mut rx: mpsc::Receiver<Event>,
     db: Option<PgPool>,
     kafka: Option<Arc<KafkaOut>>,
+    leadership: Arc<Leadership>,
     cancel: CancellationToken,
 ) {
     let mut batch: Vec<Event> = Vec::with_capacity(500);
@@ -94,6 +96,16 @@ pub async fn run_writer(
             n = rx.recv_many(&mut batch, 500) => n == 0,
             _ = cancel.cancelled() => { rx.close(); while let Ok(e) = rx.try_recv() { batch.push(e); } true }
         };
+        // Пара горячего резерва пишет в общую БД: помечаем, чей экземпляр записал событие.
+        if leadership.is_ha_enabled() {
+            let role = if leadership.is_active() { "ACTIVE" } else { "STANDBY" };
+            for e in &mut batch {
+                if let Value::Object(map) = &mut e.details {
+                    map.insert("instance".into(), json!(leadership.instance_id()));
+                    map.insert("role".into(), json!(role));
+                }
+            }
+        }
         if let Some(kafka) = &kafka {
             for e in &batch {
                 kafka.send_event(&EventMessage {

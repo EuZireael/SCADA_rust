@@ -83,8 +83,50 @@ SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094 \
 | `GATEWAY_ALARMS_ENABLED` | `false` | алармы по minValue/maxValue |
 | `GATEWAY_OPCUA_OP_TIMEOUT_MS` / `_MODBUS_` / `_PAC_` | 5000 / 3000 / 3000 | таймауты операций |
 | `GATEWAY_STALE_AFTER_MS` | `30000` | нет удачных чтений — пересоздать OPC UA-сессию |
+| `GATEWAY_PUBLISH_ENABLED` / `_DEADBAND` / `_DEADBAND_PERCENT` / `_MIN_INTERVAL_MS` / `_FULL_RESEND_MS` | `true` / 0 / 0 / 0 / `30000` | телеметрия «по исключению» — `docs/TELEMETRY_BY_EXCEPTION.md` |
+| `GATEWAY_HISTORY_DEADBAND` / `_DEADBAND_PERCENT` / `_MIN_INTERVAL_MS` / `_MAX_INTERVAL_MS` | 0 / 0 / 0 / `600000` | фильтр истории (тег переопределяет блоком `history:` в YAML) |
+| `GATEWAY_HA_ENABLED` | `false` | горячее резервирование (нужен Kafka) |
+| `GATEWAY_HA_INSTANCE_ID` / `_GROUP_ID` / `_TOPIC` | `<HOSTNAME>-<pid>` / `scada-gateway-ha.<топик команд>` / `scada-gateway-ha` | имя экземпляра, группа и служебный топик выборов |
+| `GATEWAY_HA_SESSION_TIMEOUT_MS` / `_HEARTBEAT_INTERVAL_MS` | `6000` / `1000` | время обнаружения отказа активного (брокеру нужен `group.min.session.timeout.ms` ≤ значения) |
+| `GATEWAY_COMMANDS_MAX_AGE_MS` | `30000` | команда старше — `REJECTED_EXPIRED` |
+| `GATEWAY_SCRIPTS_DIR` / `_TIMEOUT_MS` / `_RELOAD_INTERVAL_MS` | `scripts` / `50` / `5000` | пользовательские Lua-скрипты |
+| `KAFKA_TOPICS_REPLICATION` | `1` | фактор репликации создаваемых топиков |
+| `CONTROLLERS_CONFIG` | — | то же, что `CONTROLLERS_YAML` (форма `file:/путь` из Java) |
 | `SERVER_PORT` | `8888` | HTTP |
 | `RUST_LOG` | `info,…` | уровни логов |
+
+## Телеметрия «по исключению»
+
+Тег уходит в Kafka при первом значении, смене качества, изменении (с зоной нечувствительности)
+и раз в `GATEWAY_PUBLISH_FULL_RESEND_MS` — полная отправка. Контракт, настройки и замеры
+(54 800 тегов, 18 280 сообщений/с, ≈25 % одного ядра, 125 МБ) — `docs/TELEMETRY_BY_EXCEPTION.md`,
+стенд — `loadtest/`.
+
+## Горячее резервирование
+
+`GATEWAY_HA_ENABLED=true` на двух экземплярах с общим Kafka: выборы активного — группа
+потребителей Kafka на служебном топике из одной партиции (`src/ha.rs`). Активный публикует
+телеметрию и события и принимает команды; резерв опрашивает контроллеры (горячий) и молчит. Отказ
+активного — переключение за `session-timeout` (≈1,9 с при 2 с; при штатной остановке ≈0,6 с), новый
+активный сразу шлёт все теги. Состояние — `GET /api/ha`, метрика `scada_ha_active`, события
+`HotStandby` в журнале. Команды: ручное назначение партиций и коммит позиции до исполнения
+(at-most-once; команда старше `GATEWAY_COMMANDS_MAX_AGE_MS` не исполняется).
+
+## Пользовательские скрипты (Lua 5.1)
+
+`config/scripts/scripts.yaml` привязывает Lua-скрипты к тегам по маскам (`*`, `?`):
+`process(value, quality, ctx)` — обработка значения до публикации (масштаб, фильтры, проверка
+обрыва датчика), `write(value, ctx)` — преобразование значения команды перед записью в ПЛК,
+`ctx.state` — состояние на канал. Песочница: без io/os/require/load/pcall/coroutine, лимиты
+памяти и времени; ошибка в скрипте — BAD по тегу, а не падение. Правки папки подхватываются
+без перезапуска (ошибка в новой версии — остаётся старая). `GET /api/scripts`.
+
+## Станция мойки целиком по OPC UA
+
+`config/stations/BN1_MCA1.yaml` — 1834 канала станции BN1-МСА1 на одном OPC UA-контроллере; данные
+даёт эмулятор мойки (прошивка ptusa) через фасад `ptusa-opcua/` (driver-master → OPC UA, запись —
+`set_cmd`). Запуск — `MOIKA_PROJECT=<проект ПЛК> ./up-moika.sh`, подключение монитора —
+`docs/MONITOR_INTEGRATION.md`, генерация конфигурации — `tools/station_config.sh`.
 
 ## Отличия от Java-шлюза (намеренные)
 

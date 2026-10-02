@@ -1,0 +1,155 @@
+# ============================================================================
+# Стенд на ЭМУЛЯТОРЕ МОЙКИ: данные отдаёт настоящая прошивка ptusa с проектом станции
+# BN1-МСА1 (папка Moika — проприетарная, в репозиторий не входит), шлюз ходит к ней только
+# по OPC UA через OPC UA-фасад (ptusa-opcua/). Python-симулятора здесь нет.
+#
+# Два режима (папка проекта ПЛК — переменная MOIKA_PROJECT, обязательна):
+#
+#   1) ВЕСЬ стенд: прошивка + фасад + шлюз (Rust, собирается в образ) + Kafka + Postgres:
+#        ./up-moika.sh                                    # Linux/macOS
+#        docker compose -f docker-compose.moika.yml up -d --build
+#
+#   2) ТОЛЬКО контроллер (прошивка + фасад): шлюз и Kafka — свои, на хосте (так запускает стенд
+#      монитор). OPC UA станции — opc.tcp://localhost:4840:
+#        docker compose -f docker-compose.moika.yml up -d --build ptusa ptusa-opcua
+#      шлюз: CONTROLLERS_CONFIG=file:<путь>/config/stations/BN1_MCA1.yaml PLC_HOST=localhost
+#
+#   curl -s localhost:8888/actuator/health                   # режим 1
+#   docker compose -f docker-compose.moika.yml down          # остановить (данные БД сохранятся)
+#
+# Порты на хост — те же, что у стенда с симулятором (docker-compose.yml): одновременно не
+# поднимать. OPC UA фасада — :4840, driver-master прошивки — :10100 (для отладки).
+#
+#   ptusa        прошивка ptusa_main --no_io (bin/linux-default из проекта ПЛК); без модулей
+#                ввода-вывода: логика станции живая, показания датчиков — что записано
+#   ptusa-opcua  все каналы config/stations/BN1_MCA1.yaml — узлами OPC UA ns=2;s=<прибор>.<поле>
+#   gateway      шлюз с конфигом станции (CONTROLLERS_CONFIG), все каналы — OPC UA
+# ============================================================================
+name: scada-moika
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: scada-moika-postgres
+    environment:
+      POSTGRES_DB: scada_db
+      POSTGRES_USER: scada_user
+      POSTGRES_PASSWORD: scada_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scada_user -d scada_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  kafka:
+    image: apache/kafka:latest
+    container_name: scada-moika-kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Горячее резервирование: падение активного шлюза замечается за session-timeout (2 c), а не за 6 c —
+      # минимум брокера по умолчанию. На заводском брокере — та же настройка.
+      KAFKA_GROUP_MIN_SESSION_TIMEOUT_MS: 1000
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: scada-moika-cluster-01
+    ports:
+      - "9094:9094"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+
+  # Настоящая прошивка станции. glibc ≥ 2.38 — debian:stable; бинарник копируется (в папке
+  # проекта у него может не быть права на исполнение), проект — только на чтение.
+  ptusa:
+    image: debian:stable-slim
+    container_name: scada-moika-ptusa
+    working_dir: /project
+    volumes:
+      - "${MOIKA_PROJECT:?укажите MOIKA_PROJECT — папку проекта ПЛК, например ../Moika/BN1-CIP1}:/project:ro"
+    command: >-
+      sh -c "cp bin/linux-default/Release/ptusa_main /tmp/ptusa_main && chmod +x /tmp/ptusa_main &&
+             exec /tmp/ptusa_main main.plua --no_io --opc off --path . --sys_path ./sys --extra_paths ./dairy-sys"
+    ports:
+      - "10100:10000"
+    healthcheck:
+      # /bin/sh в debian — dash без /dev/tcp, поэтому bash.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/10000"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  ptusa-opcua:
+    build: ./ptusa-opcua
+    container_name: scada-moika-opcua
+    environment:
+      PAC_HOST: ptusa
+      PAC_PORT: "10000"
+      STATION_CONFIG: /config/station.yaml
+      # Адрес, который сервер анонсирует при discovery. Шлюз подключается по адресу из своего
+      # конфига и анонс игнорирует (хост/порт подменяются), так что localhost годится и для шлюза
+      # в контейнере, и для шлюза на хосте; для сторонних клиентов OPC UA (UaExpert и т.п.) —
+      # адрес, по которому они сюда доходят.
+      OPCUA_ENDPOINT: "${OPCUA_ENDPOINT:-opc.tcp://localhost:4840}"
+      OPCUA_BIND: "0.0.0.0:4840"
+    volumes:
+      - ./config/stations/BN1_MCA1.yaml:/config/station.yaml:ro
+    ports:
+      - "4840:4840"
+    depends_on:
+      ptusa:
+        condition: service_healthy
+    restart: unless-stopped
+
+  gateway:
+    build: .
+    container_name: scada-moika-gateway
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/scada_db"
+      SPRING_DATASOURCE_USERNAME: "scada_user"
+      SPRING_DATASOURCE_PASSWORD: "scada_password"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      CONTROLLERS_YAML: "/app/config/station.yaml"
+      PLC_HOST: "ptusa-opcua"
+      # Кадры BAD при обрыве связи (value=null, quality=BAD): монитор их ждёт — иначе тег на обрыве
+      # замирает на последнем значении и выглядит живым.
+      GATEWAY_SEND_BAD_FRAMES: "true"
+    volumes:
+      - ./config/stations/BN1_MCA1.yaml:/app/config/station.yaml:ro
+      # Пользовательские Lua-скрипты обработки значений: правки подхватываются без перезапуска.
+      - ./config/scripts:/app/scripts:ro
+    ports:
+      - "8888:8888"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      ptusa-opcua:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/scada-gateway", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  pgdata:

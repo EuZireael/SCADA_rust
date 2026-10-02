@@ -12,10 +12,12 @@ use tracing::{info, warn};
 use crate::config::Settings;
 use crate::events::{Event, EventSink, TelemetrySink};
 use crate::kafka::KafkaOut;
+use crate::leadership::Leadership;
 use crate::metrics::Metrics;
 use crate::model::{Controller, Tag};
 use crate::opcua::OpcConnection;
 use crate::pac::PacConnection;
+use crate::script::Scripts;
 
 const LINK_UNKNOWN: u8 = 0;
 const LINK_UP: u8 = 1;
@@ -86,21 +88,29 @@ pub struct App {
     pub telemetry: Option<TelemetrySink>,
     pub db: Option<PgPool>,
     pub controllers: Vec<Arc<ControllerHandle>>,
+    /// Роль в паре горячего резерва (без резервирования — всегда активный).
+    pub leadership: Arc<Leadership>,
+    /// Пользовательские Lua-скрипты обработки значений.
+    pub scripts: Arc<Scripts>,
     by_name: HashMap<String, (Arc<Tag>, usize)>,
     by_id: HashMap<i64, (Arc<Tag>, usize)>,
     pub started: Instant,
 }
 
+/// Всё, что шлюз собирает до создания [`App`]: выходы в Kafka и БД, роль в паре, скрипты.
+pub struct AppDeps {
+    pub metrics: Arc<Metrics>,
+    pub kafka: Option<Arc<KafkaOut>>,
+    pub events: EventSink,
+    pub telemetry: Option<TelemetrySink>,
+    pub db: Option<PgPool>,
+    pub leadership: Arc<Leadership>,
+    pub scripts: Arc<Scripts>,
+}
+
 impl App {
-    pub fn new(
-        settings: Settings,
-        metrics: Arc<Metrics>,
-        kafka: Option<Arc<KafkaOut>>,
-        events: EventSink,
-        telemetry: Option<TelemetrySink>,
-        db: Option<PgPool>,
-        controllers: Vec<Controller>,
-    ) -> Self {
+    pub fn new(settings: Settings, deps: AppDeps, controllers: Vec<Controller>) -> Self {
+        let AppDeps { metrics, kafka, events, telemetry, db, leadership, scripts } = deps;
         let controllers: Vec<Arc<ControllerHandle>> =
             controllers.into_iter().map(|c| Arc::new(ControllerHandle::new(c))).collect();
         let mut by_name = HashMap::new();
@@ -114,7 +124,20 @@ impl App {
             }
         }
         metrics.controllers_total.set(controllers.len() as i64);
-        App { settings, metrics, kafka, events, telemetry, db, controllers, by_name, by_id, started: Instant::now() }
+        App {
+            settings,
+            metrics,
+            kafka,
+            events,
+            telemetry,
+            db,
+            controllers,
+            leadership,
+            scripts,
+            by_name,
+            by_id,
+            started: Instant::now(),
+        }
     }
 
     pub fn tag_by_name(&self, name: &str) -> Option<TagRef> {

@@ -1,0 +1,55 @@
+# Поправки к конфигу реальной станции, сверенные с настоящей прошивкой ptusa (эмулятор с
+# проектом станции, SCADA-gateway/.../pac/StationConfigIT). Читает tools/station_config.sh.
+#
+#   type     <вид> <поле> <ТИП>            — тип, который разбор монитора (DataTypeResolver)
+#                                            угадал неверно (там FLOAT по умолчанию)
+#   disable  <маска имени в ПЛК> <причина> — канала нет в прошивке: поля нет у прибора этого
+#                                            подтипа; маска: * и ?, скобки — буквально
+
+# t.SYSTEM: строки, а не числа (UP_TIME="0 дн. 00:00:20", VERSION="2026.4.2.1").
+type     SYSTEM  UP_TIME      STRING
+type     SYSTEM  VERSION      STRING
+type     SYSTEM  CMD_ANSWER   STRING
+
+# Поля из базы каналов, которых у приборов станции нет в прошивке (сверено по снимку t):
+# у датчика давления — P_ERR, E, S_DEV, но не P_MIN_V/P_MAX_V; у концентратомера — без P_CZ.
+disable  LINE?PT1.P_MIN_V  нет у датчика давления в прошивке
+disable  LINE?PT1.P_MAX_V  нет у датчика давления в прошивке
+disable  LINE?QT1.P_CZ     нет у концентратомера в прошивке
+
+# Доступ для полей, которых нет в модели стенда (writable-rules.tsv выведен из неё) —
+# по назначению поля. Правило модели: запись — только команды и уставки.
+#   access <вид> <поле> RW|RO
+# Уставки приборов (P_*).
+access   DI     P_DT            RW
+access   SB     P_DT            RW
+access   PT     P_ERR           RW
+access   FQT    P_ERR_MIN_FLOW  RW
+# Счётчики расходомера — показания.
+access   FQT    DAY_T1          RO
+access   FQT    DAY_T2          RO
+access   FQT    PREV_DAY_T1     RO
+access   FQT    PREV_DAY_T2     RO
+access   FQT    T               RO
+# Сигнальная колонна: режим и команда — как у сирены/лампы (HA/HL); лампы — состояние.
+access   HLA    M               RW
+access   HLA    ST              RW
+access   HLA    L_RED           RO
+access   HLA    L_SIREN         RO
+# Модуль питания: режим — команда, остальное — диагностика (токи, напряжение, состояния).
+access   G      M               RW
+access   G      ST              RO
+access   G      V               RO
+access   G      ERR             RO
+access   G      VOLTAGE         RO
+access   G      SUM_CURRENTS    RO
+access   G      OUT_POWER_90    RO
+access   G      ST_CH           RO
+access   G      LOAD_CURRENT_CH RO
+access   G      NOMINAL_CURRENT_CH RO
+access   SYSTEM VERSION         RO
+# Сторожевой таймер (в проекте ПЛК под другими именами — каналы выключены, правило на будущее).
+access   WATCHDOG M             RW
+access   WATCHDOG ST            RO
+access   WATCHDOG P_T_ERR       RW
+access   WATCHDOG P_T_GEN       RW

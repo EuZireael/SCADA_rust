@@ -10,7 +10,7 @@ use tracing::{info, warn};
 
 use crate::app::{App, TagRef};
 use crate::events::Event;
-use crate::messages::{CommandMessage, CommandResultMessage};
+use crate::messages::{CommandMessage, CommandResultMessage, command_age_ms};
 use crate::model::{self, Protocol, TagValue, Timestamp};
 use crate::opcua;
 
@@ -26,6 +26,18 @@ impl Outcome {
     fn applied(value: TagValue) -> Self {
         Outcome {
             status: "APPLIED", message: format!("Записано значение {}", value), applied: Some(value)
+        }
+    }
+
+    /// Применено; оператор видит своё значение, а в ПЛК ушло пересчитанное скриптом канала.
+    fn applied_converted(plc: TagValue, operator: Option<TagValue>) -> Self {
+        match operator {
+            Some(op) if op != plc => Outcome {
+                status: "APPLIED",
+                message: format!("Записано значение {op} (в ПЛК: {plc})"),
+                applied: Some(op),
+            },
+            _ => Outcome::applied(plc),
         }
     }
 
@@ -102,10 +114,21 @@ pub async fn execute(app: &App, cmd: &CommandMessage) -> Outcome {
         );
     }
     let data_type = cmd.data_type.as_deref().unwrap_or(&tag.data_type);
-    let value = match coerce(data_type, &cmd.value) {
+    // Скрипт канала с write(): значение оператора (инженерные единицы) → значение для ПЛК, до приведения
+    // типа. Упал — ошибка значения, в ПЛК ничего не уходит.
+    let scripted = app.scripts.has_chain(&tag.name);
+    let plc_json = match app.scripts.to_plc(&tag, &cmd.value) {
+        Ok(v) => v,
+        Err(e) => {
+            return Outcome::fail("REJECTED_TYPE_MISMATCH", format!("Значение не преобразовано скриптом канала: {e}"));
+        }
+    };
+    let value = match coerce(data_type, &plc_json) {
         Ok(v) => v,
         Err(e) => return Outcome::fail("REJECTED_TYPE_MISMATCH", format!("Значение не приводится к типу тега: {e}")),
     };
+    // Оператору — его значение; в ПЛК ушло пересчитанное скриптом.
+    let operator_value = if scripted { coerce(data_type, &cmd.value).ok() } else { None };
 
     match tag.protocol {
         Protocol::OpcUa => {
@@ -126,7 +149,7 @@ pub async fn execute(app: &App, cmd: &CommandMessage) -> Outcome {
             match conn.write(node, variant).await {
                 Ok(status) if status.is_good() => {
                     info!("✍ OPC UA записано {} = {}", tag.name, value);
-                    Outcome::applied(value)
+                    Outcome::applied_converted(value, operator_value)
                 }
                 Ok(status) => {
                     Outcome::fail(opcua::classify_write_status(status), format!("OPC UA отклонил запись: {status}"))
@@ -152,7 +175,7 @@ pub async fn execute(app: &App, cmd: &CommandMessage) -> Outcome {
             match conn.exec_command(device, field, &value).await {
                 Ok(0) => {
                     info!("✍ PAC записано {device}.{field} = {}", value);
-                    Outcome::applied(value)
+                    Outcome::applied_converted(value, operator_value)
                 }
                 Ok(code) => {
                     Outcome::fail("FAILED_WRITE", format!("PAC не выполнил команду {device}.{field} (код {code})"))
@@ -198,8 +221,9 @@ impl Dedup {
     }
 }
 
-/// Обработать одну команду: дубли, запись, метрика, результат, событие.
-pub async fn handle(app: &App, dedup: &Dedup, cmd: CommandMessage) {
+/// Обработать одну команду: дубли, возраст, запись, метрика, результат, событие.
+/// `record_timestamp_ms` — метка записи Kafka (по часам продюсера монитора).
+pub async fn handle(app: &App, dedup: &Dedup, cmd: CommandMessage, record_timestamp_ms: Option<i64>) {
     if let Some(id) = cmd.command_id.as_deref().filter(|id| !id.is_empty())
         && dedup.is_duplicate(id)
     {
@@ -208,7 +232,24 @@ pub async fn handle(app: &App, dedup: &Dedup, cmd: CommandMessage) {
     }
     let tag = cmd.tag_name.clone().or_else(|| cmd.tag_id.map(|id| format!("#{id}"))).unwrap_or_else(|| "?".into());
     info!("← команда: {tag} = {}, от {}", cmd.value, cmd.requested_by.as_deref().unwrap_or("?"));
-    let outcome = execute(app, &cmd).await;
+    // Команда, пролежавшая в топике дольше предела (шлюзы стояли оба), в ПЛК не уходит: монитор её давно
+    // списал по таймауту, и запоздалая запись была бы для оператора неожиданной. Команды, пришедшие за
+    // время переключения пары (секунды), исполняются. Возраст — по часам монитора: нужен NTP.
+    let max_age_ms = app.settings.gateway.command_max_age.as_millis() as i64;
+    let age = command_age_ms(&cmd, record_timestamp_ms, chrono::Utc::now().timestamp_millis());
+    let outcome = match age {
+        Some(age) if age > max_age_ms => {
+            warn!(
+                "⌛ Команда {} по {tag} устарела ({age} мс) — в ПЛК не отправлена",
+                cmd.command_id.as_deref().unwrap_or("?")
+            );
+            Outcome::fail(
+                "REJECTED_EXPIRED",
+                format!("Команда устарела: {} c при пределе {} c", age / 1000, max_age_ms / 1000),
+            )
+        }
+        _ => execute(app, &cmd).await,
+    };
     app.metrics.commands.with_label_values(&[outcome.status]).inc();
     if !outcome.success() {
         warn!(
