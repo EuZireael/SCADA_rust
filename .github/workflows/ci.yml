@@ -88,9 +88,6 @@ jobs:
       kafka:
         image: apache/kafka:4.3.1       # KRaft, одна нода, PLAINTEXT localhost:9092; версия — как в docker-compose.yml
         ports: [ "9092:9092" ]
-        env:
-          # Тесты резервирования (tests/ha.rs): сессия выборов 2 c — минимум брокера по умолчанию 6 c.
-          KAFKA_GROUP_MIN_SESSION_TIMEOUT_MS: "1000"
       postgres:
         image: postgres:16
         env:
@@ -132,6 +129,9 @@ jobs:
           SIM_HOST: 127.0.0.1
           KAFKA_BOOTSTRAP: localhost:9092
           IT_DATABASE_URL: jdbc:postgresql://localhost:5432/scada_it
+          # Сессия выборов резервирования: брокер service-контейнера с настройками по умолчанию
+          # (любая переменная KAFKA_* отключает его конфиг по умолчанию) принимает не меньше 6 c.
+          IT_HA_SESSION_MS: "6000"
         run: cargo test --locked -- --ignored
 
       - name: Logs on failure
