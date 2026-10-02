@@ -38,7 +38,8 @@ pub fn controllers() -> Vec<Controller> {
     let raw = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let host = sim_host();
     let yaml =
-        config::expand_placeholders(&raw, |k| if k == "SIM_HOST" { Some(host.clone()) } else { std::env::var(k).ok() });
+        config::expand_placeholders(&raw, |k| if k == "SIM_HOST" { Some(host.clone()) } else { std::env::var(k).ok() })
+            .expect("плейсхолдеры controllers.yaml");
     config::parse_controllers(&yaml)
         .expect("controllers.yaml")
         .iter()

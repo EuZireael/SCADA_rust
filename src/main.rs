@@ -4,7 +4,7 @@
 //! Контракты — как у Java-шлюза (controllers.yaml, топики и формат Kafka, статусы команд,
 //! env-переменные, /actuator/health и метрики), поэтому встаёт на его место без правок.
 
-use scada_gateway::{command, config, db, events, http, kafka, poller};
+use scada_gateway::{command, config, db, events, ha, http, kafka, poller};
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,13 +16,15 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
-use scada_gateway::app::App;
+use scada_gateway::app::{App, AppDeps};
 use scada_gateway::command::Dedup;
 use scada_gateway::config::Settings;
 use scada_gateway::events::Event;
 use scada_gateway::kafka::KafkaOut;
+use scada_gateway::leadership::Leadership;
 use scada_gateway::metrics::Metrics;
 use scada_gateway::model::Controller;
+use scada_gateway::script::Scripts;
 
 fn main() -> Result<()> {
     // `scada-gateway healthcheck` — проверка для HEALTHCHECK контейнера без curl в образе.
@@ -87,11 +89,24 @@ async fn run() -> Result<()> {
     let tag_count: usize = enabled.iter().map(|c| c.tags.len()).sum();
     info!("Загружено {} контроллеров, {tag_count} тегов", enabled.len());
 
-    // --- Kafka, метрики, очереди событий и истории ---
+    // --- Kafka, метрики, роль в паре, очереди событий и истории ---
     let metrics = Arc::new(Metrics::new());
+    let ha_settings = settings.gateway.ha.clone();
+    let leadership = if ha_settings.enabled {
+        if !settings.kafka.enabled {
+            anyhow::bail!("горячее резервирование (GATEWAY_HA_ENABLED) работает через Kafka: включите KAFKA_ENABLED");
+        }
+        Leadership::standby(
+            ha_settings.instance_id.clone(),
+            ha_settings.group_id.clone(),
+            metrics.ha_gauge(&ha_settings.instance_id),
+        )
+    } else {
+        Leadership::single(ha_settings.instance_id.clone(), metrics.ha_gauge(&ha_settings.instance_id))
+    };
     let kafka = if settings.kafka.enabled {
         kafka::ensure_topics(&settings.kafka).await;
-        Some(Arc::new(KafkaOut::new(&settings.kafka, metrics.clone())?))
+        Some(Arc::new(KafkaOut::new(&settings.kafka, metrics.clone(), leadership.clone())?))
     } else {
         warn!("Kafka выключена (KAFKA_ENABLED=false)");
         None
@@ -100,7 +115,18 @@ async fn run() -> Result<()> {
     let mut background = JoinSet::new();
 
     let (events, events_rx) = events::channel(metrics.clone());
-    background.spawn(events::run_writer(events_rx, db.clone(), kafka.clone(), cancel.clone()));
+    background.spawn(events::run_writer(events_rx, db.clone(), kafka.clone(), leadership.clone(), cancel.clone()));
+
+    // --- Пользовательские скрипты: ошибка при старте — ошибка старта шлюза ---
+    let tag_names: Vec<String> = enabled.iter().flat_map(|c| c.tags.iter().map(|t| t.name.clone())).collect();
+    let scripts = Scripts::load(
+        settings.gateway.scripts.clone(),
+        tag_names,
+        metrics.script_errors.clone(),
+        metrics.scripts_bound_tags.clone(),
+        events.clone(),
+    )?;
+    background.spawn(scripts.clone().run_reload(cancel.clone()));
 
     let telemetry_sink = match (&db, settings.gateway.persist_telemetry) {
         (Some(pool), true) => {
@@ -127,11 +153,28 @@ async fn run() -> Result<()> {
         settings.gateway.send_bad_frames
     );
     let http_port = settings.http_port;
-    let app = Arc::new(App::new(settings, metrics, kafka.clone(), events.clone(), telemetry_sink, db, enabled));
+    let kafka_settings = settings.kafka.clone();
+    let app = Arc::new(App::new(
+        settings,
+        AppDeps {
+            metrics,
+            kafka: kafka.clone(),
+            events: events.clone(),
+            telemetry: telemetry_sink,
+            db,
+            leadership: leadership.clone(),
+            scripts,
+        },
+        enabled,
+    ));
     events.emit(
         Event::new("SYSTEM", "Gateway", "INFO", "SCADA Gateway starting up")
             .details(json!({"controllers": app.controllers.len(), "tags": app.tag_count(), "runtime": "rust"})),
     );
+
+    // --- Горячее резервирование: выборы и журнал смены роли ---
+    let elector = ha::spawn(ha_settings, kafka_settings, leadership.clone(), cancel.clone());
+    background.spawn(ha::record_events(leadership.clone(), events.clone(), cancel.clone()));
 
     // --- Опрос контроллеров ---
     let mut pollers = JoinSet::new();
@@ -150,11 +193,17 @@ async fn run() -> Result<()> {
     if app.kafka.is_some() {
         let app_cmd = app.clone();
         let dedup = Arc::new(Dedup::new(Duration::from_secs(60), 1000));
-        background.spawn(kafka::consume_commands(app.settings.kafka.clone(), cancel.clone(), move |cmd| {
-            let app = app_cmd.clone();
-            let dedup = dedup.clone();
-            async move { command::handle(&app, &dedup, cmd).await }
-        }));
+        let leadership_cmd = leadership.clone();
+        background.spawn(kafka::consume_commands(
+            app.settings.kafka.clone(),
+            leadership_cmd,
+            cancel.clone(),
+            move |cmd, record_ts| {
+                let app = app_cmd.clone();
+                let dedup = dedup.clone();
+                async move { command::handle(&app, &dedup, cmd, record_ts).await }
+            },
+        ));
     }
 
     // --- HTTP ---
@@ -184,6 +233,10 @@ async fn run() -> Result<()> {
     };
     if tokio::time::timeout(Duration::from_secs(8), stop).await.is_err() {
         warn!("Не все задачи остановились за 8 с");
+    }
+    if let Some(handle) = elector {
+        // Поток выборов сам переведёт роль в резерв и выйдет из группы — резерв подхватит сразу.
+        let _ = tokio::task::spawn_blocking(move || handle.join()).await;
     }
     if let Some(k) = &kafka {
         k.flush(Duration::from_secs(3));

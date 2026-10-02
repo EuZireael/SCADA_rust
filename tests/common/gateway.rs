@@ -31,9 +31,14 @@ impl Gateway {
 
     /// Шлюз на своём YAML и с дополнительными переменными окружения.
     pub fn start_with(controllers_yaml: &Path, env: &[(&str, &str)]) -> Self {
-        let prefix = format!("it-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        Self::start_on(&new_prefix(), controllers_yaml, env)
+    }
+
+    /// Шлюз на топиках с заданным префиксом: два экземпляра пары резервирования делят топики.
+    pub fn start_on(prefix: &str, controllers_yaml: &Path, env: &[(&str, &str)]) -> Self {
+        let prefix = prefix.to_string();
         let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-        let log = std::env::temp_dir().join(format!("scada-gateway-{prefix}.log"));
+        let log = std::env::temp_dir().join(format!("scada-gateway-{prefix}-{port}.log"));
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_scada-gateway"));
         cmd.env("CONTROLLERS_YAML", controllers_yaml)
             .env("SIM_HOST", super::sim_host())
@@ -70,6 +75,41 @@ impl Gateway {
         let child =
             cmd.stdout(Stdio::from(out.try_clone().unwrap())).stderr(Stdio::from(out)).spawn().expect("запуск шлюза");
         Gateway { child, port, prefix, log }
+    }
+
+    /// Роль экземпляра из `/api/ha` ("ACTIVE" / "STANDBY"); None — шлюз не отвечает.
+    pub fn role(&self) -> Option<String> {
+        let (200, body) = self.get("/api/ha")? else { return None };
+        serde_json::from_str::<Value>(&body).ok()?["role"].as_str().map(str::to_string)
+    }
+
+    /// Значение счётчика из `/actuator/prometheus` (без учёта меток).
+    pub fn metric(&self, name: &str) -> Option<f64> {
+        let (_, body) = self.get("/actuator/prometheus")?;
+        body.lines().find(|l| l.starts_with(name)).and_then(|l| l.rsplit(' ').next()?.parse().ok())
+    }
+
+    /// Дождаться роли; вернуть, сколько ждали.
+    pub async fn wait_role(&self, role: &str, within: Duration) -> Duration {
+        let started = Instant::now();
+        loop {
+            if self.role().as_deref() == Some(role) {
+                return started.elapsed();
+            }
+            assert!(
+                started.elapsed() < within,
+                "роль {role} не наступила за {within:?} (сейчас {:?})\n{}",
+                self.role(),
+                self.log_tail()
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
+    /// Штатная остановка (SIGTERM) и ожидание выхода.
+    pub fn terminate(&mut self) {
+        let _ = Command::new("kill").args(["-TERM", &self.child.id().to_string()]).status();
+        let _ = self.child.wait();
     }
 
     pub fn topic(&self, suffix: &str) -> String {
@@ -133,6 +173,10 @@ impl Drop for Gateway {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+pub fn new_prefix() -> String {
+    format!("it-{}", &uuid::Uuid::new_v4().simple().to_string()[..8])
 }
 
 pub fn kafka_config() -> ClientConfig {

@@ -45,6 +45,34 @@ fn ticker(handle: &ControllerHandle) -> tokio::time::Interval {
     t
 }
 
+/// Замер цикла опроса: на выходе из итерации пишет длительность в гистограмму и считает цикл,
+/// не уложившийся в период (шлюз не успевает за контроллером).
+struct CycleTimer {
+    started: std::time::Instant,
+    period: Duration,
+    metrics: Arc<crate::metrics::Metrics>,
+}
+
+impl CycleTimer {
+    fn start(app: &App, handle: &ControllerHandle) -> Self {
+        CycleTimer {
+            started: std::time::Instant::now(),
+            period: Duration::from_millis(handle.ctrl.cycle_period_ms()),
+            metrics: app.metrics.clone(),
+        }
+    }
+}
+
+impl Drop for CycleTimer {
+    fn drop(&mut self) {
+        let elapsed = self.started.elapsed();
+        self.metrics.poll_seconds.observe(elapsed.as_secs_f64());
+        if elapsed > self.period {
+            self.metrics.poll_overruns.inc();
+        }
+    }
+}
+
 /// Пауза с учётом остановки; false — остановка.
 async fn pause(cancel: &CancellationToken, d: Duration) -> bool {
     tokio::select! {
@@ -125,7 +153,9 @@ async fn run_opcua(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancell
                 app.mark_down(&handle, "сессия OPC UA закрыта");
                 break;
             }
-            match conn.read(&nodes).await {
+            let _cycle = CycleTimer::start(&app, &handle);
+            let result = conn.read(&nodes).await;
+            match result {
                 Ok(values) => {
                     let readings: Vec<Reading> = tags
                         .iter()
@@ -135,9 +165,19 @@ async fn run_opcua(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancell
                             Reading { tag: tag.clone(), value, quality, timestamp }
                         })
                         .collect();
+                    let good = readings.iter().filter(|r| r.quality == Quality::Good).count();
                     processor.process(&readings);
-                    // Запрос прошёл → связь есть (пер-узловые BAD связь не роняют).
-                    app.mark_up(&handle);
+                    if good > 0 || readings.is_empty() {
+                        // Запрос прошёл и хотя бы один узел дал значение → связь есть (BAD у отдельных
+                        // узлов связь не роняет).
+                        app.mark_up(&handle);
+                    } else {
+                        // Все узлы BAD — сервер жив, а данных за ним нет (пропала шина или рантайм ПЛК,
+                        // у OPC UA-фасада — связь с прошивкой): значения замерли бы на мониторе при
+                        // «живой» связи и без строки в журнале, поэтому это обрыв.
+                        let status = values.first().and_then(|dv| dv.status).map(|s| s.to_string()).unwrap_or_default();
+                        app.mark_down(&handle, &format!("все {} узлов вернули BAD ({status})", readings.len()));
+                    }
                 }
                 Err(e) => {
                     processor.process(&all_bad(&tags));
@@ -181,6 +221,7 @@ async fn run_modbus(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancel
             _ = cancel.cancelled() => return,
             _ = tick.tick() => {}
         }
+        let _cycle = CycleTimer::start(&app, &handle);
         match client.read(&mut blocks).await {
             Ok(values) => {
                 let ts = Timestamp::now(); // у Modbus нет времени источника — момент чтения
@@ -216,6 +257,7 @@ async fn run_pac(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancellat
             _ = cancel.cancelled() => { *handle.pac.lock().await = None; return; }
             _ = tick.tick() => {}
         }
+        let _cycle = CycleTimer::start(&app, &handle);
         let mut guard = handle.pac.lock().await;
         if guard.is_none() {
             match PacConnection::connect(&host, port, gw.pac_op_timeout).await {

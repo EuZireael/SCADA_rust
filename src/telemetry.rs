@@ -1,7 +1,19 @@
-//! Обработка снятых значений: смена качества → событие, алармы (по флагу), Kafka, история.
+//! Обработка снятых значений. Порядок — как у Java-шлюза и контракта «по исключению»
+//! (`docs/TELEMETRY_BY_EXCEPTION_CONTRACT.md`):
+//!
+//! 1. пользовательский скрипт канала (`script.rs`): масштаб, отсев кода обрыва, фильтр — **до** всего
+//!    остального, дальше все видят уже обработанное значение;
+//! 2. смена качества → одно сводное событие на цикл;
+//! 3. алармы (по флагу);
+//! 4. Kafka — по исключению (`filter.rs`): первое значение, смена качества, изменение за зону,
+//!    полная отправка раз в `full-resend-ms`. Резервный экземпляр пары не публикует и состояния
+//!    фильтров не ведёт; став активным, начинает с чистого листа и заново отправляет все теги;
+//! 5. локальная история — только значимые точки (тот же фильтр со своими настройками и
+//!    поканальными переопределениями).
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use serde_json::json;
 use tracing::{error, info, warn};
@@ -9,72 +21,139 @@ use tracing::{error, info, warn};
 use crate::app::{App, ControllerHandle};
 use crate::db::TelemetryRow;
 use crate::events::Event;
+use crate::filter::{self, FilterParams, Last};
 use crate::messages::{AlarmMessage, TelemetryMessage};
 use crate::model::{Quality, Reading, Tag, Timestamp};
 
-/// Обработчик одного контроллера (состояние качества и алармов — свои, без блокировок).
+/// Состояние тега в обработчике контроллера (вектор по `Tag::slot`).
+#[derive(Default)]
+struct TagState {
+    quality: Option<Quality>,
+    /// Последнее опубликованное в Kafka.
+    published: Option<Last>,
+    /// Последнее записанное в историю.
+    history: Option<Last>,
+}
+
+/// Обработчик одного контроллера (состояние — своё, без блокировок).
 pub struct Processor {
     app: Arc<App>,
     controller: Arc<ControllerHandle>,
-    last_quality: HashMap<String, Quality>,
+    states: Vec<TagState>,
     alarms: AlarmEvaluator,
+    publish_params: FilterParams,
+    /// Эпоха активации, при которой состояние фильтров актуально (см. `Leadership::activations`).
+    epoch: u64,
 }
 
 impl Processor {
     pub fn new(app: Arc<App>, controller: Arc<ControllerHandle>) -> Self {
-        Processor { app, controller, last_quality: HashMap::new(), alarms: AlarmEvaluator::default() }
+        let states = std::iter::repeat_with(TagState::default).take(controller.ctrl.tags.len()).collect();
+        let publish_params = FilterParams::publish(&app.settings.gateway.publish);
+        let epoch = app.leadership.activations();
+        Processor { app, controller, states, alarms: AlarmEvaluator::default(), publish_params, epoch }
     }
 
     /// Результат цикла опроса.
     pub fn process(&mut self, readings: &[Reading]) {
-        let settings = &self.app.settings.gateway;
-        let mut to_bad = Vec::new();
-        let mut to_good = Vec::new();
-        let mut history = Vec::new();
+        self.process_at(readings, Instant::now());
+    }
+
+    /// То же с заданным «сейчас»: интервалы фильтров считаются по нему (тесты управляют временем).
+    pub fn process_at(&mut self, readings: &[Reading], now: Instant) {
+        let started = Instant::now();
+        let app = self.app.clone();
+        let gw = &app.settings.gateway;
+        let active = app.leadership.is_active();
+        if active && self.epoch != app.leadership.activations() {
+            // Стали активными: прежний активный мог упасть, и потребитель не знает значений тегов —
+            // отправляем и пишем всё заново, а не ждём полной отправки неизменившихся.
+            self.epoch = app.leadership.activations();
+            for st in &mut self.states {
+                st.published = None;
+                st.history = None;
+            }
+            info!("{}: состояние фильтров публикации сброшено — полная отправка", self.controller.ctrl.name);
+        }
+        let scripts = app.scripts.snapshot();
+        let have_scripts = !scripts.is_empty();
+        let (mut to_bad, mut to_good) = (Vec::new(), Vec::new());
+        let (mut sent, mut suppressed) = (0u64, 0u64);
+        let mut history_rows = Vec::new();
 
         for r in readings {
-            if let Some(prev) = self.last_quality.insert(r.tag.name.clone(), r.quality)
-                && prev != r.quality
+            // 1. Пользовательский скрипт канала.
+            let processed;
+            let chain = if have_scripts { scripts.chain(&r.tag.name) } else { None };
+            let (value, quality) = match chain {
+                Some(chain) => {
+                    processed = app.scripts.process(chain, &r.tag, r.value.as_ref(), r.quality, r.timestamp);
+                    (processed.value.as_ref(), processed.quality)
+                }
+                None => (r.value.as_ref(), r.quality),
+            };
+            let Some(state) = self.states.get_mut(r.tag.slot) else { continue };
+
+            // 2. Смена качества.
+            if let Some(prev) = state.quality.replace(quality)
+                && prev != quality
             {
-                if r.quality == Quality::Bad {
-                    to_bad.push(r.tag.name.clone())
+                if quality == Quality::Bad { to_bad.push(r.tag.name.clone()) } else { to_good.push(r.tag.name.clone()) }
+            }
+
+            // 3. Алармы.
+            if gw.alarms_enabled
+                && let Some(v) = value.filter(|v| v.is_numeric()).and_then(|v| v.as_f64())
+            {
+                self.alarms.evaluate(&app, &self.controller, &r.tag, v);
+            }
+
+            if !active {
+                continue; // резерв опрашивает и следит за качеством, но наружу молчит
+            }
+
+            // 4. Kafka — по исключению. BAD-кадр без включённой отправки BAD уходить не должен, и решение
+            //    фильтру не отдаём: иначе он запомнил бы неотправленное как отправленное.
+            if let Some(kafka) = &app.kafka
+                && (value.is_some() || gw.send_bad_frames)
+            {
+                if !gw.publish.enabled
+                    || filter::decide(&self.publish_params, &mut state.published, value, quality, now)
+                {
+                    kafka.send_telemetry(&r.tag.name, &TelemetryMessage { value, quality, timestamp: r.timestamp });
+                    sent += 1;
                 } else {
-                    to_good.push(r.tag.name.clone())
+                    suppressed += 1;
                 }
             }
 
-            if settings.alarms_enabled
-                && let Some(v) = r.value.as_ref().filter(|v| v.is_numeric()).and_then(|v| v.as_f64())
-            {
-                self.alarms.evaluate(&self.app, &self.controller, &r.tag, v);
-            }
-
-            if (r.value.is_some() || settings.send_bad_frames)
-                && let Some(kafka) = &self.app.kafka
-            {
-                kafka.send_telemetry(
-                    &r.tag.name,
-                    &TelemetryMessage { value: r.value.clone(), quality: r.quality, timestamp: r.timestamp },
-                );
-                self.app.metrics.telemetry_sent.inc();
-            }
-
-            if self.app.telemetry.is_some() && r.tag.id > 0 {
-                history.push(TelemetryRow {
-                    tag_id: r.tag.id,
-                    time: r.timestamp.0,
-                    quality: r.quality.as_str(),
-                    value: r.value.clone(),
-                });
+            // 5. Локальная история — только значимые точки.
+            if app.telemetry.is_some() && r.tag.id > 0 {
+                let params = FilterParams::history(&gw.history, &r.tag.history);
+                if filter::decide(&params, &mut state.history, value, quality, now) {
+                    history_rows.push(TelemetryRow {
+                        tag_id: r.tag.id,
+                        time: r.timestamp.0,
+                        quality: quality.as_str(),
+                        value: value.cloned(),
+                    });
+                }
             }
         }
 
-        if let Some(sink) = &self.app.telemetry
-            && !history.is_empty()
+        if sent > 0 {
+            app.metrics.telemetry_sent.inc_by(sent);
+        }
+        if suppressed > 0 {
+            app.metrics.telemetry_suppressed.inc_by(suppressed);
+        }
+        if let Some(sink) = &app.telemetry
+            && !history_rows.is_empty()
         {
-            sink.push(history);
+            sink.push(history_rows);
         }
         self.emit_quality_change(to_bad, to_good);
+        app.metrics.process_seconds.observe(started.elapsed().as_secs_f64());
     }
 
     /// Смена качества — одно сводное событие на цикл. (Java-шлюз писал событие на КАЖДЫЙ
@@ -287,6 +366,7 @@ mod tests {
             modbus_address: None,
             modbus_type: None,
             modbus_unit_id: None,
+            history: None,
         })
     }
 
@@ -327,5 +407,341 @@ mod tests {
     #[test]
     fn no_limits_no_alarms() {
         assert_eq!(kind(&AlarmEvaluator::default().decide(&tag(None, None), 1e9)), "-");
+    }
+}
+
+/// Обработчик целиком: что реально уходит в Kafka, в историю и в журнал. Контракт публикации —
+/// `docs/TELEMETRY_BY_EXCEPTION_CONTRACT.md`; здесь проверяется связка с ролью в паре, скриптами и
+/// отправкой BAD-кадров, правила фильтра — в `filter.rs`.
+#[cfg(test)]
+mod processor_tests {
+    use std::time::Duration;
+
+    use tokio::sync::mpsc;
+
+    use super::*;
+    use crate::app::AppDeps;
+    use crate::config::{ServerConfig, Settings, TagConfig};
+    use crate::events;
+    use crate::kafka::KafkaOut;
+    use crate::leadership::Leadership;
+    use crate::metrics::Metrics;
+    use crate::model::{Controller, TagValue};
+    use crate::script::Scripts;
+
+    use Quality::{Bad, Good};
+
+    struct Rig {
+        proc: Processor,
+        kafka: Arc<KafkaOut>,
+        events_rx: mpsc::Receiver<Event>,
+        history_rx: mpsc::Receiver<Vec<TelemetryRow>>,
+        leadership: Arc<Leadership>,
+        app: Arc<App>,
+        base: Instant,
+    }
+
+    fn tag_cfg(name: &str, dt: &str) -> TagConfig {
+        TagConfig {
+            name: name.into(),
+            node_id: format!("ns=2;s={name}"),
+            channel_id: None,
+            device_name: None,
+            field_name: None,
+            device_type: None,
+            protocol: None,
+            data_type: dt.into(),
+            polling_rate: 1000,
+            enabled: true,
+            writable: true,
+            unit: None,
+            min_value: None,
+            max_value: None,
+            modbus_address: None,
+            modbus_type: None,
+            modbus_unit_id: None,
+            history: None,
+        }
+    }
+
+    fn rig(
+        tweak: impl FnOnce(&mut Settings),
+        tags: &[(&str, &str)],
+        scripts_dir: Option<&std::path::Path>,
+        ha: bool,
+    ) -> Rig {
+        rig_full(tweak, tags.iter().map(|(n, d)| tag_cfg(n, d)).collect(), scripts_dir, ha)
+    }
+
+    /// `ha` — экземпляр пары (резервный, пока тест не сделает его активным).
+    fn rig_full(
+        tweak: impl FnOnce(&mut Settings),
+        tags: Vec<TagConfig>,
+        scripts_dir: Option<&std::path::Path>,
+        ha: bool,
+    ) -> Rig {
+        let mut settings = Settings::from_env().expect("настройки по умолчанию");
+        settings.gateway.publish.deadband = 0.0;
+        tweak(&mut settings);
+        let metrics = Arc::new(Metrics::new());
+        let leadership = if ha {
+            Leadership::standby("test".into(), "g".into(), metrics.ha_gauge("test"))
+        } else {
+            Leadership::single("test".into(), metrics.ha_gauge("test"))
+        };
+        let kafka = Arc::new(KafkaOut::new(&settings.kafka, metrics.clone(), leadership.clone()).expect("продюсер"));
+        let (events, events_rx) = events::channel(metrics.clone());
+        let (history, history_rx) = events::telemetry_channel(metrics.clone());
+        let mut controller = Controller::from_config(&ServerConfig {
+            id: None,
+            name: "C".into(),
+            endpoint: "opc.tcp://h:4840".into(),
+            security: None,
+            username: None,
+            password: None,
+            enabled: true,
+            tags,
+        })
+        .unwrap();
+        // Как после синхронизации с БД: у тега есть id (история пишется только тегам с id).
+        for (n, t) in controller.tags.iter_mut().enumerate() {
+            Arc::make_mut(t).id = n as i64 + 1;
+        }
+        let names: Vec<String> = controller.tags.iter().map(|t| t.name.clone()).collect();
+        let scripts = match scripts_dir {
+            Some(dir) => {
+                let mut s = settings.gateway.scripts.clone();
+                s.dir = dir.to_path_buf();
+                Scripts::load(
+                    s,
+                    names.clone(),
+                    metrics.script_errors.clone(),
+                    metrics.scripts_bound_tags.clone(),
+                    events.clone(),
+                )
+                .expect("скрипты")
+            }
+            None => Scripts::none(),
+        };
+        let app = Arc::new(App::new(
+            settings,
+            AppDeps {
+                metrics,
+                kafka: Some(kafka.clone()),
+                events: events.clone(),
+                telemetry: Some(history),
+                db: None,
+                leadership: leadership.clone(),
+                scripts,
+            },
+            vec![controller],
+        ));
+        let proc = Processor::new(app.clone(), app.controllers[0].clone());
+        Rig { proc, kafka, events_rx, history_rx, leadership, app, base: Instant::now() }
+    }
+
+    impl Rig {
+        fn readings(&self, rows: &[(usize, Option<TagValue>, Quality)]) -> Vec<Reading> {
+            rows.iter()
+                .map(|(slot, v, q)| Reading {
+                    tag: self.app.controllers[0].ctrl.tags[*slot].clone(),
+                    value: v.clone(),
+                    quality: *q,
+                    timestamp: Timestamp::now(),
+                })
+                .collect()
+        }
+
+        /// Цикл опроса через `secs` секунд от старта.
+        fn cycle(&mut self, secs: u64, rows: &[(usize, Option<TagValue>, Quality)]) {
+            let readings = self.readings(rows);
+            self.proc.process_at(&readings, self.base + Duration::from_secs(secs));
+        }
+
+        /// Забрать отправленное в Kafka: (ключ, разобранное тело).
+        fn sent(&self) -> Vec<(String, serde_json::Value)> {
+            std::mem::take(&mut *self.kafka.captured.lock().unwrap())
+                .into_iter()
+                .map(|(_, key, body)| (key, serde_json::from_str(&body).unwrap()))
+                .collect()
+        }
+
+        fn sent_values(&self) -> Vec<(String, serde_json::Value)> {
+            self.sent().into_iter().map(|(k, b)| (k, b["value"].clone())).collect()
+        }
+
+        fn events(&mut self) -> Vec<Event> {
+            std::iter::from_fn(|| self.events_rx.try_recv().ok()).collect()
+        }
+    }
+
+    fn i(v: i64) -> Option<TagValue> {
+        Some(TagValue::Int(v))
+    }
+
+    fn f(v: f64) -> Option<TagValue> {
+        Some(TagValue::F64(v))
+    }
+
+    #[test]
+    fn repeats_are_not_published_changes_are_and_full_resend_repeats() {
+        let mut r = rig(|s| s.gateway.publish.full_resend = Duration::from_secs(30), &[("A", "INT32")], None, false);
+        r.cycle(0, &[(0, i(42), Good)]);
+        r.cycle(2, &[(0, i(42), Good)]);
+        r.cycle(4, &[(0, i(43), Good)]);
+        r.cycle(6, &[(0, i(43), Good)]);
+        assert_eq!(r.sent_values(), [("A".into(), serde_json::json!(42)), ("A".into(), serde_json::json!(43))]);
+        r.cycle(36, &[(0, i(43), Good)]); // 30 с с последней публикации
+        assert_eq!(r.sent_values().len(), 1, "полная отправка неизменившегося");
+        let text = r.app.metrics.render();
+        assert!(text.contains("scada_telemetry_sent_total{application=\"scada-gateway\"} 3"), "{text}");
+        assert!(text.contains("scada_telemetry_suppressed_total{application=\"scada-gateway\"} 2"), "{text}");
+    }
+
+    #[test]
+    fn disabled_publish_filter_sends_every_tag_every_cycle() {
+        let mut r = rig(|s| s.gateway.publish.enabled = false, &[("A", "INT32"), ("B", "INT32")], None, false);
+        for k in 0..3 {
+            r.cycle(k * 2, &[(0, i(1), Good), (1, i(2), Good)]);
+        }
+        assert_eq!(r.sent().len(), 6);
+    }
+
+    #[test]
+    fn message_format_is_unchanged() {
+        let mut r = rig(|_| {}, &[("Барановичи-1.BN1.LINE1.V0.ST", "INT32")], None, false);
+        r.cycle(0, &[(0, i(1), Good)]);
+        let (topic_key, body) = r.sent().remove(0);
+        assert_eq!(topic_key, "Барановичи-1.BN1.LINE1.V0.ST");
+        let o = body.as_object().unwrap();
+        assert_eq!(
+            o.keys().cloned().collect::<std::collections::BTreeSet<_>>(),
+            ["quality", "timestamp", "value"].map(String::from).into()
+        );
+        assert_eq!((o["value"].clone(), o["quality"].clone()), (serde_json::json!(1), serde_json::json!("GOOD")));
+        assert!(o["timestamp"].is_number());
+    }
+
+    #[test]
+    fn quality_loss_and_recovery_are_published_at_once_and_noted_in_the_journal() {
+        let mut r = rig(|s| s.gateway.publish.min_interval = Duration::from_secs(60), &[("A", "FLOAT")], None, false);
+        r.cycle(0, &[(0, f(1.5), Good)]);
+        r.cycle(2, &[(0, None, Bad)]);
+        r.cycle(4, &[(0, None, Bad)]);
+        r.cycle(6, &[(0, f(1.5), Good)]);
+        let sent = r.sent();
+        assert_eq!(
+            sent.iter().map(|(_, b)| b["quality"].as_str().unwrap()).collect::<Vec<_>>(),
+            ["GOOD", "BAD", "GOOD"]
+        );
+        assert!(sent[1].1["value"].is_null());
+        let quality_events: Vec<_> = r.events().into_iter().filter(|e| e.event_type == "QUALITY_CHANGE").collect();
+        assert_eq!(quality_events.len(), 2, "один сводный события на смену в каждую сторону");
+    }
+
+    #[test]
+    fn bad_frames_disabled_are_neither_sent_nor_remembered() {
+        let mut r = rig(|s| s.gateway.send_bad_frames = false, &[("A", "INT32")], None, false);
+        r.cycle(0, &[(0, i(5), Good)]);
+        r.cycle(2, &[(0, None, Bad)]); // не уходит и не запоминается как отправленный
+        r.cycle(4, &[(0, i(5), Good)]); // сравнивается с реально отправленным — то же значение
+        assert_eq!(r.sent_values(), [("A".into(), serde_json::json!(5))]);
+    }
+
+    #[test]
+    fn standby_is_silent_and_becoming_active_resends_every_tag() {
+        let mut r = rig(|_| {}, &[("A", "INT32"), ("B", "INT32")], None, true);
+        let rows = [(0, i(1), Good), (1, i(2), Good)];
+        r.cycle(0, &rows);
+        r.cycle(2, &rows);
+        assert!(r.sent().is_empty(), "резервный наружу молчит");
+        assert!(r.history_rx.try_recv().is_err(), "и историю не пишет");
+
+        r.leadership.set_active(true, "тест");
+        r.cycle(4, &rows);
+        assert_eq!(r.sent().len(), 2, "стали активными — значения всех тегов уходят сразу, не ждут полной отправки");
+        r.cycle(6, &rows);
+        assert!(r.sent().is_empty(), "дальше — по исключению");
+
+        // Потеряли и снова получили лидерство — снова всё с чистого листа.
+        r.leadership.set_active(false, "тест");
+        r.cycle(8, &rows);
+        assert!(r.sent().is_empty());
+        r.leadership.set_active(true, "тест");
+        r.cycle(10, &rows);
+        assert_eq!(r.sent().len(), 2);
+    }
+
+    #[test]
+    fn standby_still_tracks_quality_changes() {
+        let mut r = rig(|_| {}, &[("A", "INT32")], None, true);
+        r.cycle(0, &[(0, i(1), Good)]);
+        r.cycle(2, &[(0, None, Bad)]);
+        assert_eq!(r.events().iter().filter(|e| e.event_type == "QUALITY_CHANGE").count(), 1);
+    }
+
+    #[test]
+    fn history_keeps_only_significant_points_and_tag_override_applies() {
+        use crate::config::HistoryConfig;
+        // A — умолчания (любое изменение, «пульс» раз в 600 с); B — зона 1.0 из блока history: тега.
+        let mut b = tag_cfg("B", "FLOAT");
+        b.history = Some(HistoryConfig { deadband: Some(1.0), ..Default::default() });
+        let mut r = rig_full(
+            |s| s.gateway.history.max_interval = Duration::from_secs(600),
+            vec![tag_cfg("A", "FLOAT"), b],
+            None,
+            false,
+        );
+        // A стоит на 10.0; B дрейфует 10.0, 10.4, 10.8, 11.2, 11.6 — первая точка, затем зона 1.0 от записанного.
+        let drift = [10.0, 10.4, 10.8, 11.2, 11.6];
+        for (k, v) in drift.iter().enumerate() {
+            r.cycle(k as u64 * 2, &[(0, f(10.0), Good), (1, f(*v), Good)]);
+        }
+        let rows: Vec<TelemetryRow> = std::iter::from_fn(|| r.history_rx.try_recv().ok()).flatten().collect();
+        let of = |id: i64| rows.iter().filter(|x| x.tag_id == id).map(|x| x.value.clone()).collect::<Vec<_>>();
+        assert_eq!(of(1), [f(10.0)], "A: значение стоит — одна точка");
+        assert_eq!(of(2), [f(10.0), f(11.2)], "B: 10.0, затем дрейф накопился за зону 1.0 (сравнение с записанным)");
+        // «Пульс» раз в max-interval: стоящее значение A записывается снова через 600 с.
+        r.cycle(600, &[(0, f(10.0), Good), (1, f(11.2), Good)]);
+        let pulse: Vec<TelemetryRow> = std::iter::from_fn(|| r.history_rx.try_recv().ok()).flatten().collect();
+        assert_eq!(pulse.iter().filter(|x| x.tag_id == 1).count(), 1);
+    }
+
+    #[test]
+    fn user_script_runs_before_everything_else() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("sensor_break.lua"), "function process(v, q, ctx)\n  if v ~= nil and (v < ctx.params.lo or v > ctx.params.hi) then return nil, 'BAD' end\n  return v, q\nend\n").unwrap();
+        std::fs::write(
+            dir.path().join("scale.lua"),
+            "function process(v, q, ctx)\n  if v == nil then return nil, q end\n  return v * ctx.params.k, q\nend\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("scripts.yaml"),
+            "scripts:\n  - {script: sensor_break.lua, tags: [\"T*\"], params: {lo: -50, hi: 150}}\n  - {script: scale.lua, tags: [\"P*\"], params: {k: 0.001}}\n",
+        )
+        .unwrap();
+        let mut r = rig(|_| {}, &[("T1", "FLOAT"), ("P1", "FLOAT"), ("X1", "FLOAT")], Some(dir.path()), false);
+        r.cycle(0, &[(0, f(21.5), Good), (1, f(1500.0), Good), (2, f(3276.7), Good)]);
+        r.cycle(2, &[(0, f(3276.7), Good), (1, f(1500.0), Good), (2, f(3276.7), Good)]); // обрыв датчика T1
+        let sent = r.sent();
+        let get = |tag: &str| -> Vec<(serde_json::Value, serde_json::Value)> {
+            sent.iter().filter(|(k, _)| k == tag).map(|(_, b)| (b["value"].clone(), b["quality"].clone())).collect()
+        };
+        assert_eq!(
+            get("T1"),
+            [(serde_json::json!(21.5), serde_json::json!("GOOD")), (serde_json::Value::Null, serde_json::json!("BAD"))]
+        );
+        assert_eq!(
+            get("P1"),
+            [(serde_json::json!(1.5), serde_json::json!("GOOD"))],
+            "масштаб применён, повтор не ушёл"
+        );
+        assert_eq!(get("X1"), [(serde_json::json!(3276.7), serde_json::json!("GOOD"))], "канал без скрипта — как есть");
+        assert_eq!(
+            r.events().iter().filter(|e| e.event_type == "QUALITY_CHANGE").count(),
+            1,
+            "скрипт перевёл T1 в BAD — это смена качества"
+        );
     }
 }

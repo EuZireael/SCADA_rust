@@ -19,6 +19,8 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/actuator/prometheus", get(prometheus))
         .route("/api/health", get(api_health))
         .route("/api/status", get(status))
+        .route("/api/ha", get(ha))
+        .route("/api/scripts", get(scripts))
         .route("/api/events", get(events))
         .route("/api/events/type/{event_type}", get(events_by_type))
         .route("/api/events/severity/{severity}", get(events_by_severity))
@@ -75,6 +77,23 @@ async fn status(State(app): State<Arc<App>>) -> Json<Value> {
         "uptimeSeconds": app.started.elapsed().as_secs(),
         "controllers": controllers,
     }))
+}
+
+/// Роль экземпляра в паре горячего резерва.
+async fn ha(State(app): State<Arc<App>>) -> Json<Value> {
+    let l = &app.leadership;
+    Json(json!({
+        "enabled": l.is_ha_enabled(),
+        "instance": l.instance_id(),
+        "role": if l.is_active() { "ACTIVE" } else { "STANDBY" },
+        "since": l.since().to_rfc3339(),
+        "group": l.group_id(),
+    }))
+}
+
+/// Пользовательские скрипты обработки значений: привязки, ошибки, состояние перезагрузки.
+async fn scripts(State(app): State<Arc<App>>) -> Json<Value> {
+    Json(app.scripts.info())
 }
 
 #[derive(Deserialize)]

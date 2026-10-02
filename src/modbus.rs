@@ -225,6 +225,7 @@ mod tests {
             modbus_address: Some(addr),
             modbus_type: None,
             modbus_unit_id: None,
+            history: None,
         }))
     }
 

@@ -49,6 +49,9 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Горячее резервирование: падение активного шлюза замечается за session-timeout (2 c), а не за 6 c —
+      # минимум брокера по умолчанию. На заводском брокере — та же настройка.
+      KAFKA_GROUP_MIN_SESSION_TIMEOUT_MS: 1000
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_HEAP_OPTS: "-Xmx512m -Xms512m"
       CLUSTER_ID: scada-rs-cluster-01
