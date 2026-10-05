@@ -8,6 +8,18 @@
 
 ## [Unreleased]
 
+### Добавлено
+
+- **Безопасность Kafka**: TLS и SASL (PLAIN, SCRAM) — `KAFKA_SECURITY_PROTOCOL`,
+  `KAFKA_SASL_*`, `KAFKA_SSL_*`, любое свойство librdkafka через `KAFKA_CLIENT_*`, Spring-имена
+  `SPRING_KAFKA_PROPERTIES_*` (включая JAAS); OpenSSL вшит в бинарник. Секреты не попадают в журнал.
+  Проверено на брокере с SASL_PLAINTEXT: неверный пароль — отказ в аутентификации, верный — данные идут.
+- **Безопасность REST**: `GATEWAY_API_TOKEN` (или `GATEWAY_API_TOKEN_FILE`) закрывает `/api/*`
+  токеном Bearer; `/actuator/health` и `/actuator/prometheus` открыты. `GATEWAY_HTTP_BIND`.
+- **Резервирование по здоровью**: активный экземпляр без связи со всеми контроллерами
+  (`GATEWAY_HA_YIELD_AFTER_MS`, 30 с) передаёт лидерство партнёру, который в группе, и не отбирает
+  его обратно; без партнёра остаётся активным.
+
 ## [0.2.0] — 2026-10-02
 
 Перенос наработок Java-шлюза: телеметрия «по исключению» (контракт монитора), горячее

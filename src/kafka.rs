@@ -8,7 +8,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use rdkafka::ClientConfig;
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::{ClientContext, DefaultClientContext};
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
@@ -58,8 +57,8 @@ pub struct KafkaOut {
 
 impl KafkaOut {
     pub fn new(settings: &KafkaSettings, metrics: Arc<Metrics>, leadership: Arc<Leadership>) -> Result<Self> {
-        let producer: ThreadedProducer<DeliveryCounter> = ClientConfig::new()
-            .set("bootstrap.servers", &settings.bootstrap_servers)
+        let producer: ThreadedProducer<DeliveryCounter> = settings
+            .client_config()
             .set("client.id", "scada-gateway-rs")
             .set("enable.idempotence", "true")
             .set("acks", "all")
@@ -146,14 +145,13 @@ pub async fn ensure_topic(settings: &KafkaSettings, name: &str, partitions: i32)
 }
 
 async fn create_topics(settings: &KafkaSettings, specs: &[(&str, i32)]) {
-    let admin: AdminClient<DefaultClientContext> =
-        match ClientConfig::new().set("bootstrap.servers", &settings.bootstrap_servers).create() {
-            Ok(a) => a,
-            Err(e) => {
-                warn!("Kafka admin не создан: {e}");
-                return;
-            }
-        };
+    let admin: AdminClient<DefaultClientContext> = match settings.client_config().create() {
+        Ok(a) => a,
+        Err(e) => {
+            warn!("Kafka admin не создан: {e}");
+            return;
+        }
+    };
     let topics: Vec<NewTopic> = specs
         .iter()
         .map(|(name, parts)| NewTopic::new(name, *parts, TopicReplication::Fixed(settings.replication)))
@@ -272,11 +270,8 @@ async fn consume_while_active<F, Fut>(
 }
 
 fn assigned_consumer(settings: &KafkaSettings, topic: &str) -> Result<StreamConsumer> {
-    let consumer: StreamConsumer = ClientConfig::new()
-        .set("bootstrap.servers", &settings.bootstrap_servers)
-        .set("group.id", "scada-gateway-group")
-        .set("enable.auto.commit", "false")
-        .create()?;
+    let consumer: StreamConsumer =
+        settings.client_config().set("group.id", "scada-gateway-group").set("enable.auto.commit", "false").create()?;
     let metadata = consumer.fetch_metadata(Some(topic), Duration::from_secs(10))?;
     let partitions: Vec<i32> = metadata
         .topics()
@@ -301,4 +296,48 @@ fn assigned_consumer(settings: &KafkaSettings, topic: &str) -> Result<StreamCons
     }
     consumer.assign(&tpl)?;
     Ok(consumer)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{ClientProperties, Settings};
+    use crate::metrics::Metrics;
+
+    fn settings_with(props: &[(&str, &str)]) -> KafkaSettings {
+        let mut s = Settings::from_env().expect("настройки по умолчанию").kafka;
+        s.client = ClientProperties(props.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect());
+        s
+    }
+
+    fn producer(s: &KafkaSettings) -> Result<KafkaOut> {
+        let metrics = Arc::new(Metrics::new());
+        KafkaOut::new(s, metrics.clone(), Leadership::single("test".into(), metrics.ha_gauge("test")))
+    }
+
+    /// librdkafka собран с OpenSSL и SASL: клиенты с TLS и SCRAM/PLAIN создаются (подключения нет).
+    #[test]
+    fn producer_accepts_tls_and_sasl_properties() {
+        let tls = settings_with(&[("security.protocol", "ssl"), ("ssl.endpoint.identification.algorithm", "none")]);
+        producer(&tls).expect("TLS");
+        let scram = settings_with(&[
+            ("security.protocol", "sasl_ssl"),
+            ("sasl.mechanism", "SCRAM-SHA-512"),
+            ("sasl.username", "gw"),
+            ("sasl.password", "secret"),
+        ]);
+        producer(&scram).expect("SASL_SSL + SCRAM");
+        let plain = settings_with(&[
+            ("security.protocol", "sasl_plaintext"),
+            ("sasl.mechanism", "PLAIN"),
+            ("sasl.username", "gw"),
+            ("sasl.password", "secret"),
+        ]);
+        producer(&plain).expect("SASL_PLAINTEXT + PLAIN");
+    }
+
+    #[test]
+    fn unknown_property_is_an_error_not_silently_ignored() {
+        assert!(producer(&settings_with(&[("no.such.property", "1")])).is_err());
+    }
 }

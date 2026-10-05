@@ -15,6 +15,11 @@ use serde::Deserialize;
 #[derive(Debug, Clone)]
 pub struct Settings {
     pub http_port: u16,
+    /// Адрес привязки HTTP (`GATEWAY_HTTP_BIND`, по умолчанию все интерфейсы).
+    pub http_bind: String,
+    /// Токен доступа к `/api/*` (`GATEWAY_API_TOKEN` или файл `GATEWAY_API_TOKEN_FILE`); `None` — без проверки.
+    /// `/actuator/health` и `/actuator/prometheus` токеном не закрываются (проверка контейнера, сбор метрик).
+    pub api_token: Option<String>,
     pub controllers_path: PathBuf,
     /// `None` — работа без БД (журнал и история не пишутся, команды только по имени тега).
     pub db: Option<DbSettings>,
@@ -39,7 +44,98 @@ pub struct KafkaSettings {
     pub publish_alarms: bool,
     /// Фактор репликации создаваемых шлюзом топиков (на стенде 1, на кластере — по числу брокеров).
     pub replication: i32,
+    /// Свойства librdkafka для всех клиентов шлюза (безопасность: TLS, SASL) — см. [`client_properties`].
+    pub client: ClientProperties,
     pub topics: Topics,
+}
+
+impl KafkaSettings {
+    /// Заготовка конфигурации клиента: брокеры и свойства безопасности. Остальное клиент задаёт сам.
+    pub fn client_config(&self) -> rdkafka::ClientConfig {
+        let mut c = rdkafka::ClientConfig::new();
+        c.set("bootstrap.servers", &self.bootstrap_servers);
+        for (k, v) in &self.client.0 {
+            c.set(k, v);
+        }
+        c
+    }
+}
+
+/// Дополнительные свойства librdkafka (`security.protocol`, `sasl.*`, `ssl.*`…). В `Debug` значения
+/// паролей и ключей скрыты, чтобы они не попали в журнал.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct ClientProperties(pub Vec<(String, String)>);
+
+impl std::fmt::Debug for ClientProperties {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_map().entries(self.0.iter().map(|(k, v)| (k, if is_secret(k) { "***" } else { v.as_str() }))).finish()
+    }
+}
+
+impl ClientProperties {
+    /// Сводка для журнала: свойства без секретов.
+    pub fn summary(&self) -> String {
+        self.0.iter().filter(|(k, _)| !is_secret(k)).map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(", ")
+    }
+}
+
+fn is_secret(key: &str) -> bool {
+    key.contains("password") || key.contains("secret") || key.contains("key.pem")
+}
+
+/// Свойства Kafka-клиентов из окружения.
+///
+/// Именованные: `KAFKA_SECURITY_PROTOCOL`, `KAFKA_SASL_MECHANISM`, `KAFKA_SASL_USERNAME`,
+/// `KAFKA_SASL_PASSWORD`, `KAFKA_SSL_CA_LOCATION`, `KAFKA_SSL_CERTIFICATE_LOCATION`,
+/// `KAFKA_SSL_KEY_LOCATION`, `KAFKA_SSL_KEY_PASSWORD`. Любое другое свойство librdkafka —
+/// `KAFKA_CLIENT_<ИМЯ>` (`KAFKA_CLIENT_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM=none` →
+/// `ssl.endpoint.identification.algorithm=none`); оно перекрывает именованное. Для совместимости с
+/// Spring понимаются `SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL`, `…_SASL_MECHANISM` и
+/// `…_SASL_JAAS_CONFIG` (имя и пароль берутся из `username="…" password="…"`).
+pub fn client_properties(vars: impl IntoIterator<Item = (String, String)>) -> ClientProperties {
+    let vars: Vec<(String, String)> = vars.into_iter().filter(|(_, v)| !v.is_empty()).collect();
+    let get = |name: &str| vars.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone());
+    let mut props: Vec<(String, String)> = Vec::new();
+    let mut set = |key: &str, value: String| {
+        props.retain(|(k, _)| k != key);
+        props.push((key.to_string(), value));
+    };
+    for (key, names) in [
+        ("security.protocol", &["KAFKA_SECURITY_PROTOCOL", "SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL"][..]),
+        ("sasl.mechanism", &["KAFKA_SASL_MECHANISM", "SPRING_KAFKA_PROPERTIES_SASL_MECHANISM"][..]),
+        ("sasl.username", &["KAFKA_SASL_USERNAME"][..]),
+        ("sasl.password", &["KAFKA_SASL_PASSWORD"][..]),
+        ("ssl.ca.location", &["KAFKA_SSL_CA_LOCATION"][..]),
+        ("ssl.certificate.location", &["KAFKA_SSL_CERTIFICATE_LOCATION"][..]),
+        ("ssl.key.location", &["KAFKA_SSL_KEY_LOCATION"][..]),
+        ("ssl.key.password", &["KAFKA_SSL_KEY_PASSWORD"][..]),
+    ] {
+        if let Some(v) = names.iter().find_map(|n| get(n)) {
+            set(key, v.trim().to_string());
+        }
+    }
+    if let Some(jaas) = get("SPRING_KAFKA_PROPERTIES_SASL_JAAS_CONFIG") {
+        for (key, field) in [("sasl.username", "username"), ("sasl.password", "password")] {
+            if let Some(v) = jaas_field(&jaas, field) {
+                set(key, v);
+            }
+        }
+    }
+    for (name, value) in &vars {
+        if let Some(rest) = name.strip_prefix("KAFKA_CLIENT_") {
+            set(&rest.to_ascii_lowercase().replace('_', "."), value.trim().to_string());
+        }
+    }
+    ClientProperties(props)
+}
+
+/// `username="alice" password="s3"` → значение поля в кавычках (или без них, до пробела/`;`).
+fn jaas_field(jaas: &str, field: &str) -> Option<String> {
+    let rest = &jaas[jaas.find(&format!("{field}="))? + field.len() + 1..];
+    Some(match rest.strip_prefix('"') {
+        Some(quoted) => quoted[..quoted.find('"')?].to_string(),
+        None => rest.split(|c: char| c.is_whitespace() || c == ';').next()?.to_string(),
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +218,9 @@ pub struct HaSettings {
     pub group_id: String,
     pub session_timeout_ms: u32,
     pub heartbeat_interval_ms: u32,
+    /// Активный экземпляр без связи ни с одним контроллером столько времени передаёт лидерство
+    /// партнёру (если тот в группе). 0 — не передавать.
+    pub yield_after: Duration,
 }
 
 impl Settings {
@@ -133,6 +232,8 @@ impl Settings {
             env_any(&["GATEWAY_HA_INSTANCE_ID", "GATEWAY_HA_INSTANCEID"]).unwrap_or_else(default_instance_id);
         Ok(Settings {
             http_port: env_parse(&["SERVER_PORT"], 8888)?,
+            http_bind: env_or(&["GATEWAY_HTTP_BIND", "SERVER_ADDRESS"], "0.0.0.0"),
+            api_token: api_token()?,
             // CONTROLLERS_CONFIG — имя и форма (`file:/путь`) из Java-шлюза: его compose работает без правок.
             controllers_path: PathBuf::from(
                 env_any(&["CONTROLLERS_YAML", "CONTROLLERS_CONFIG"])
@@ -147,6 +248,7 @@ impl Settings {
                 publish_events: env_bool(&["KAFKA_PUBLISH_EVENTS"], true),
                 publish_alarms: env_bool(&["KAFKA_PUBLISH_ALARMS"], true),
                 replication: env_parse(&["KAFKA_TOPICS_REPLICATION"], 1)?,
+                client: client_properties(std::env::vars()),
                 topics: Topics {
                     telemetry: env_or(&["KAFKA_TOPICS_TELEMETRY"], "scada.tags"),
                     alarms: env_or(&["KAFKA_TOPICS_ALARMS"], "scada-alarms"),
@@ -210,6 +312,7 @@ impl Settings {
                         &["GATEWAY_HA_HEARTBEAT_INTERVAL_MS", "GATEWAY_HA_HEARTBEATINTERVALMS"],
                         1000,
                     )?,
+                    yield_after: env_ms(&["GATEWAY_HA_YIELD_AFTER_MS", "GATEWAY_HA_YIELDAFTERMS"], 30_000)?,
                 },
                 opcua_op_timeout: env_ms(&["GATEWAY_OPCUA_OP_TIMEOUT_MS", "GATEWAY_OPCUAOPTIMEOUTMS"], 5000)?,
                 modbus_op_timeout: env_ms(&["GATEWAY_MODBUS_OP_TIMEOUT_MS", "GATEWAY_MODBUSOPTIMEOUTMS"], 3000)?,
@@ -259,6 +362,20 @@ pub fn parse_jdbc_url(url: &str) -> Result<(String, u16, String)> {
         bail!("неполный адрес БД: {url}");
     }
     Ok((host, port, database))
+}
+
+/// Токен REST: `GATEWAY_API_TOKEN` или содержимое файла из `GATEWAY_API_TOKEN_FILE` (секреты Docker).
+fn api_token() -> Result<Option<String>> {
+    if let Some(t) = env_any(&["GATEWAY_API_TOKEN"]) {
+        return Ok(Some(t.trim().to_string()));
+    }
+    let Some(path) = env_any(&["GATEWAY_API_TOKEN_FILE"]) else { return Ok(None) };
+    let token = std::fs::read_to_string(&path).with_context(|| format!("GATEWAY_API_TOKEN_FILE={path}"))?;
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        bail!("GATEWAY_API_TOKEN_FILE={path}: файл пуст");
+    }
+    Ok(Some(token))
 }
 
 /// Имя экземпляра по умолчанию — хост и pid (как у Java-шлюза).
@@ -421,6 +538,57 @@ pub fn expand_placeholders(text: &str, lookup: impl Fn(&str) -> Option<String>) 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn kafka_client_properties_from_named_and_generic_vars() {
+        let vars =
+            |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<Vec<_>>();
+        let p = super::client_properties(vars(&[
+            ("KAFKA_SECURITY_PROTOCOL", "SASL_SSL"),
+            ("KAFKA_SASL_MECHANISM", "SCRAM-SHA-512"),
+            ("KAFKA_SASL_USERNAME", "gw"),
+            ("KAFKA_SASL_PASSWORD", "p@ss"),
+            ("KAFKA_SSL_CA_LOCATION", "/certs/ca.pem"),
+            ("KAFKA_CLIENT_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM", "none"),
+            ("KAFKA_CLIENT_SASL_USERNAME", "override"),
+            ("KAFKA_TOPICS_TELEMETRY", "scada.tags"),
+            ("KAFKA_SSL_KEY_PASSWORD", ""),
+        ]));
+        let get = |k: &str| p.0.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
+        assert_eq!(get("security.protocol"), Some("SASL_SSL"));
+        assert_eq!(get("sasl.mechanism"), Some("SCRAM-SHA-512"));
+        assert_eq!(get("sasl.username"), Some("override"), "KAFKA_CLIENT_* перекрывает именованную");
+        assert_eq!(get("sasl.password"), Some("p@ss"));
+        assert_eq!(get("ssl.endpoint.identification.algorithm"), Some("none"));
+        assert_eq!(get("ssl.key.password"), None, "пустое значение — не задано");
+        assert_eq!(get("topics.telemetry"), None, "чужие KAFKA_* не попадают в клиент");
+        let shown = format!("{p:?}");
+        assert!(!shown.contains("p@ss"), "пароль не должен печататься: {shown}");
+        assert!(!p.summary().contains("p@ss"));
+        assert!(p.summary().contains("security.protocol=SASL_SSL"));
+    }
+
+    #[test]
+    fn kafka_client_properties_from_spring_jaas() {
+        let p = super::client_properties([
+            ("SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL".to_string(), "SASL_PLAINTEXT".to_string()),
+            ("SPRING_KAFKA_PROPERTIES_SASL_MECHANISM".to_string(), "PLAIN".to_string()),
+            (
+                "SPRING_KAFKA_PROPERTIES_SASL_JAAS_CONFIG".to_string(),
+                "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"alice\" password=\"s3\";"
+                    .to_string(),
+            ),
+        ]);
+        let get = |k: &str| p.0.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
+        assert_eq!(get("security.protocol"), Some("SASL_PLAINTEXT"));
+        assert_eq!(get("sasl.username"), Some("alice"));
+        assert_eq!(get("sasl.password"), Some("s3"));
+    }
+
+    #[test]
+    fn no_security_vars_means_no_properties() {
+        assert!(super::client_properties([("KAFKA_ENABLED".to_string(), "true".to_string())]).0.is_empty());
+    }
+
     use super::*;
 
     #[test]

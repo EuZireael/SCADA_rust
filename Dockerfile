@@ -22,6 +22,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
  && cp target/release/scada-gateway /usr/local/bin/scada-gateway
 
 FROM debian:bookworm-slim
+# ca-certificates — корневые сертификаты для TLS к Kafka (KAFKA_SECURITY_PROTOCOL=SSL/SASL_SSL с публичным УЦ).
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 # Непривилегированный пользователь, как у Java-образа.
 RUN groupadd -r scada && useradd -r -g scada -u 1001 scada
 WORKDIR /app

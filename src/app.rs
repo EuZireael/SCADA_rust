@@ -47,6 +47,11 @@ impl ControllerHandle {
         }
     }
 
+    /// Связь потеряна (не «ещё не устанавливалась»).
+    pub fn is_down(&self) -> bool {
+        self.link.load(Ordering::Relaxed) == LINK_DOWN
+    }
+
     pub fn is_connected(&self) -> bool {
         self.link.load(Ordering::Relaxed) == LINK_UP
     }
@@ -190,6 +195,11 @@ impl App {
         } else if streak.is_multiple_of(30) {
             warn!("🔴 {} всё ещё недоступен ({streak} ошибок подряд)", h.ctrl.name);
         }
+    }
+
+    /// Шлюз «слепой»: есть контроллеры, и связь потеряна со всеми (ни с одним нет данных).
+    pub fn all_links_down(&self) -> bool {
+        !self.controllers.is_empty() && self.controllers.iter().all(|c| c.is_down())
     }
 
     fn update_connected_gauge(&self) {
