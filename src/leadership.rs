@@ -91,7 +91,7 @@ impl Leadership {
     }
 
     pub fn since(&self) -> DateTime<Utc> {
-        *self.since.lock().expect("mutex since")
+        *self.since.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     pub fn subscribe(&self) -> watch::Receiver<RoleChange> {
@@ -110,7 +110,7 @@ impl Leadership {
         } else {
             warn!("🟡 Экземпляр {} в РЕЗЕРВЕ: {reason}", self.instance_id);
         }
-        *self.since.lock().expect("mutex since") = Utc::now();
+        *self.since.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Utc::now();
         self.gauge.set(i64::from(value));
         self.tx.send_replace(RoleChange { active: value, reason: reason.into() });
         info!("роль: {}", if value { "ACTIVE" } else { "STANDBY" });

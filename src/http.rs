@@ -93,7 +93,11 @@ async fn health(State(app): State<Arc<App>>) -> Json<Value> {
         .iter()
         .map(|c| (c.ctrl.name.clone(), json!(if c.is_connected() { "UP" } else { "DOWN" })))
         .collect();
-    Json(json!({"status": "UP", "components": {"db": {"status": db}, "controllers": controllers}}))
+    let kafka = match &app.kafka {
+        Some(k) => json!({"status": if k.delivery().healthy() { "UP" } else { "DOWN" }}),
+        None => json!({"status": "DISABLED"}),
+    };
+    Json(json!({"status": "UP", "components": {"db": {"status": db}, "kafka": kafka, "controllers": controllers}}))
 }
 
 async fn prometheus(State(app): State<Arc<App>>) -> Response {

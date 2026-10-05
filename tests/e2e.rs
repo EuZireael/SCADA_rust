@@ -168,6 +168,21 @@ async fn gateway_end_to_end() {
         assert!(status["controllers"].as_array().unwrap().iter().all(|c| c["id"].as_i64().unwrap() > 0), "id из БД");
     }
 
+    // --- Здоровье: ни одна задача не падала, доставка в Kafka идёт, БД и контроллеры на связи ---
+    assert!(gw.metric("scada_task_restarts_total").is_none(), "надзиратель перезапускал задачи\n{}", gw.log_tail());
+    let (_, body) = gw.get("/actuator/health").unwrap();
+    let health: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(health["components"]["kafka"]["status"], "UP", "{health}");
+    assert!(
+        gw.metric("scada_kafka_send_errors_total").unwrap_or(0.0) == 0.0,
+        "ошибки доставки в Kafka\n{}",
+        gw.log_tail()
+    );
+    if std::env::var("IT_DATABASE_URL").is_ok() {
+        assert_eq!(health["components"]["db"]["status"], "UP", "{health}");
+        assert!(gw.metric("scada_db_rows_lost_total").is_none(), "потеряны строки БД");
+    }
+
     // --- Остановка по SIGTERM ---
     let mut gw = gw;
     let stop = Instant::now();

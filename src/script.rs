@@ -174,7 +174,7 @@ impl BoundScript {
         quality: Quality,
         ts: Timestamp,
     ) -> Result<Processed, String> {
-        let mut inner = self.inner.lock().expect("mutex script");
+        let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Inner { lua, process, ctx, params, .. } = &mut *inner;
         let ctx = ctx_for(lua, ctx, params, tag).map_err(|e| short(&e))?;
         ctx.set("timestamp", ts.0.timestamp_millis() as f64).map_err(|e| short(&e))?;
@@ -199,7 +199,7 @@ impl BoundScript {
         if !self.has_write {
             return Ok(value.clone());
         }
-        let mut inner = self.inner.lock().expect("mutex script");
+        let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Inner { lua, write, ctx, params, .. } = &mut *inner;
         let ctx = ctx_for(lua, ctx, params, tag).map_err(|e| short(&e))?;
         let arg = json_to_lua(value);
@@ -470,14 +470,14 @@ impl Scripts {
     }
 
     pub fn snapshot(&self) -> Arc<Loaded> {
-        self.current.read().expect("rwlock scripts").clone()
+        self.current.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     fn install(&self, loaded: Loaded) {
         if let Some(g) = &self.bound_gauge {
             g.set(loaded.by_tag.len() as i64);
         }
-        *self.current.write().expect("rwlock scripts") = Arc::new(loaded);
+        *self.current.write().unwrap_or_else(std::sync::PoisonError::into_inner) = Arc::new(loaded);
     }
 
     // ------------------------------------------------------------------ горячий путь --
@@ -524,17 +524,23 @@ impl Scripts {
     }
 
     fn stats_of(&self, file: &str) -> Arc<Stats> {
-        self.stats.lock().expect("mutex stats").entry(file.to_string()).or_default().clone()
+        self.stats
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(file.to_string())
+            .or_default()
+            .clone()
     }
 
     fn on_error(&self, script: &BoundScript, tag: &Tag, message: &str) {
         let stats = self.stats_of(&script.file);
         let total = stats.errors.fetch_add(1, Ordering::Relaxed) + 1;
-        *stats.last.lock().expect("mutex stats") = Some((format!("{}: {message}", tag.name), Utc::now()));
+        *stats.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((format!("{}: {message}", tag.name), Utc::now()));
         if let Some(m) = &self.errors_metric {
             m.with_label_values(&[&script.file]).inc();
         }
-        let mut logged = stats.logged_at.lock().expect("mutex stats");
+        let mut logged = stats.logged_at.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if logged.is_none_or(|t| t.elapsed() >= ERROR_LOG_INTERVAL) {
             *logged = Some(Instant::now());
             error!("📜 Скрипт {} на канале {}: {message} (ошибок всего: {total})", script.file, tag.name);
@@ -634,7 +640,7 @@ impl Scripts {
                 let summary =
                     format!("{} привязок, каналов со скриптами: {}", loaded.scripts.len(), loaded.by_tag.len());
                 self.install(loaded);
-                *self.last_reload_error.lock().expect("mutex") = None;
+                *self.last_reload_error.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
                 if let Some(e) = &self.events {
                     e.emit(
                         Event::new("SCRIPT", "Scripts", "INFO", format!("Скрипты перезагружены: {summary}"))
@@ -647,7 +653,8 @@ impl Scripts {
                 // Отпечаток сломанной версии запоминаем, чтобы не повторять ошибку каждые 5 с.
                 let current = self.snapshot();
                 self.install(Loaded { scripts: current.scripts.clone(), by_tag: current.by_tag.clone(), fingerprint });
-                *self.last_reload_error.lock().expect("mutex") = Some(message.clone());
+                *self.last_reload_error.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                    Some(message.clone());
                 error!("📜 Скрипты не перезагружены, работают прежние: {message}");
                 if let Some(events) = &self.events {
                     events.emit(
@@ -686,9 +693,14 @@ impl Scripts {
             .iter()
             .map(|s| {
                 let matched = loaded.by_tag.values().filter(|chain| chain.iter().any(|c| Arc::ptr_eq(c, s))).count();
-                let stats = self.stats.lock().expect("mutex stats").get(&s.file).cloned();
+                let stats = self.stats.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&s.file).cloned();
                 let (errors, last) = stats
-                    .map(|st| (st.errors.load(Ordering::Relaxed), st.last.lock().expect("mutex stats").clone()))
+                    .map(|st| {
+                        (
+                            st.errors.load(Ordering::Relaxed),
+                            st.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone(),
+                        )
+                    })
                     .unwrap_or((0, None));
                 json!({
                     "script": s.file,
@@ -705,7 +717,7 @@ impl Scripts {
             "dir": self.settings.dir.display().to_string(),
             "bindings": bindings,
             "taggedChannels": loaded.by_tag.len(),
-            "lastReloadError": *self.last_reload_error.lock().expect("mutex"),
+            "lastReloadError": *self.last_reload_error.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
         })
     }
 }

@@ -28,6 +28,8 @@ use crate::model::{Quality, Reading, Tag, Timestamp};
 /// Состояние тега в обработчике контроллера (вектор по `Tag::slot`).
 #[derive(Default)]
 struct TagState {
+    /// Доля периода до первой полной отправки (разброс, чтобы теги не уходили залпом).
+    phase: f64,
     quality: Option<Quality>,
     /// Последнее опубликованное в Kafka.
     published: Option<Last>,
@@ -44,14 +46,20 @@ pub struct Processor {
     publish_params: FilterParams,
     /// Эпоха активации, при которой состояние фильтров актуально (см. `Leadership::activations`).
     epoch: u64,
+    /// Эпоха доставки Kafka: после восстановления связи с брокером все теги отправляются заново.
+    delivery_epoch: u64,
 }
 
 impl Processor {
     pub fn new(app: Arc<App>, controller: Arc<ControllerHandle>) -> Self {
-        let states = std::iter::repeat_with(TagState::default).take(controller.ctrl.tags.len()).collect();
+        let name = &controller.ctrl.name;
+        let states = (0..controller.ctrl.tags.len())
+            .map(|slot| TagState { phase: filter::phase(name, slot), ..TagState::default() })
+            .collect();
         let publish_params = FilterParams::publish(&app.settings.gateway.publish);
         let epoch = app.leadership.activations();
-        Processor { app, controller, states, alarms: AlarmEvaluator::default(), publish_params, epoch }
+        let delivery_epoch = app.kafka.as_ref().map_or(0, |k| k.delivery().resync_epoch());
+        Processor { app, controller, states, alarms: AlarmEvaluator::default(), publish_params, epoch, delivery_epoch }
     }
 
     /// Результат цикла опроса.
@@ -74,6 +82,14 @@ impl Processor {
                 st.history = None;
             }
             info!("{}: состояние фильтров публикации сброшено — полная отправка", self.controller.ctrl.name);
+        }
+        if let Some(kafka) = &app.kafka
+            && self.delivery_epoch != kafka.delivery().resync_epoch()
+        {
+            // Брокер был недоступен: недоставленное фильтр уже считал отправленным. Историю не трогаем.
+            self.delivery_epoch = kafka.delivery().resync_epoch();
+            self.states.iter_mut().for_each(|st| st.published = None);
+            info!("{}: доставка в Kafka восстановлена — полная отправка", self.controller.ctrl.name);
         }
         let scripts = app.scripts.snapshot();
         let have_scripts = !scripts.is_empty();
@@ -118,7 +134,14 @@ impl Processor {
                 && (value.is_some() || gw.send_bad_frames)
             {
                 if !gw.publish.enabled
-                    || filter::decide(&self.publish_params, &mut state.published, value, quality, now)
+                    || filter::decide_phased(
+                        &self.publish_params,
+                        &mut state.published,
+                        value,
+                        quality,
+                        now,
+                        state.phase,
+                    )
                 {
                     kafka.send_telemetry(&r.tag.name, &TelemetryMessage { value, quality, timestamp: r.timestamp });
                     sent += 1;
@@ -130,7 +153,7 @@ impl Processor {
             // 5. Локальная история — только значимые точки.
             if app.telemetry.is_some() && r.tag.id > 0 {
                 let params = FilterParams::history(&gw.history, &r.tag.history);
-                if filter::decide(&params, &mut state.history, value, quality, now) {
+                if filter::decide_phased(&params, &mut state.history, value, quality, now, state.phase) {
                     history_rows.push(TelemetryRow {
                         tag_id: r.tag.id,
                         time: r.timestamp.0,
@@ -670,6 +693,37 @@ mod processor_tests {
         r.leadership.set_active(true, "тест");
         r.cycle(10, &rows);
         assert_eq!(r.sent().len(), 2);
+    }
+
+    /// Брокер был недоступен: недоставленное фильтр уже считал отправленным. Когда доставка снова пошла,
+    /// все теги уходят заново, а не ждут полной отправки; история при этом не дублируется.
+    #[test]
+    fn delivery_recovery_resends_every_tag_but_not_the_history() {
+        // Полная отправка редкая, чтобы не мешать: проверяем именно восстановление доставки.
+        let mut r = rig(
+            |s| s.gateway.publish.full_resend = Duration::from_secs(3600),
+            &[("A", "INT32"), ("B", "INT32")],
+            None,
+            false,
+        );
+        let rows = [(0, i(1), Good), (1, i(2), Good)];
+        r.cycle(0, &rows);
+        r.cycle(2, &rows);
+        assert!(r.sent().len() >= 2);
+        r.cycle(4, &rows);
+        assert!(r.sent().is_empty(), "по исключению повторов нет");
+        let _ = std::iter::from_fn(|| r.history_rx.try_recv().ok()).count();
+
+        let kafka = r.kafka.clone();
+        kafka.delivery().record_failure(1_000);
+        r.cycle(6, &rows);
+        assert!(r.sent().is_empty(), "пока доставка не восстановилась — ничего нового");
+        kafka.delivery().record_success();
+        r.cycle(8, &rows);
+        assert_eq!(r.sent().len(), 2, "доставка восстановилась — значения всех тегов уходят заново");
+        r.cycle(10, &rows);
+        assert!(r.sent().is_empty(), "дальше снова по исключению");
+        assert!(r.history_rx.try_recv().is_err(), "историю восстановление доставки не трогает");
     }
 
     #[test]

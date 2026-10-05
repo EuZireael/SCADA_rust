@@ -28,6 +28,14 @@ pub struct Metrics {
     pub kafka_send_errors: IntCounter,
     pub events_dropped: IntCounter,
     pub telemetry_rows_dropped: IntCounter,
+    /// Доставка в Kafka восстановилась после сбоя — тегам запущена повторная отправка.
+    pub kafka_resyncs: IntCounter,
+    /// Перезапуски задач шлюза надзирателем (`task` — имя задачи).
+    pub task_restarts: IntCounterVec,
+    /// Неудачные записи в БД (`kind`: events, history, config).
+    pub db_write_errors: IntCounterVec,
+    /// Строки, потерянные из-за недоступной БД (`kind`: events, history).
+    pub db_rows_lost: IntCounterVec,
 }
 
 impl Default for Metrics {
@@ -57,6 +65,14 @@ impl Metrics {
             IntCounterVec::new(Opts::new("scada_script_errors_total", "Ошибки пользовательских скриптов"), &["script"])
                 .expect("метрика");
         registry.register(Box::new(script_errors.clone())).expect("регистрация метрики");
+        let vec = |name: &str, help: &str, label: &str| {
+            let v = IntCounterVec::new(Opts::new(name, help), &[label]).expect("метрика");
+            registry.register(Box::new(v.clone())).expect("регистрация метрики");
+            v
+        };
+        let task_restarts = vec("scada_task_restarts_total", "Перезапуски задач шлюза после падения", "task");
+        let db_write_errors = vec("scada_db_write_errors_total", "Неудачные записи в БД", "kind");
+        let db_rows_lost = vec("scada_db_rows_lost_total", "Строки, потерянные из-за недоступной БД", "kind");
         let ha_active =
             IntGaugeVec::new(Opts::new("scada_ha_active", "1 — экземпляр активный, 0 — резервный"), &["instance"])
                 .expect("метрика");
@@ -99,6 +115,13 @@ impl Metrics {
                 "scada_telemetry_rows_dropped_total",
                 "Точки истории, отброшенные при переполнении очереди записи в БД",
             ),
+            kafka_resyncs: counter(
+                "scada_kafka_resyncs_total",
+                "Доставка в Kafka восстановилась после сбоя: все теги отправлены заново",
+            ),
+            task_restarts,
+            db_write_errors,
+            db_rows_lost,
             registry,
         }
     }
