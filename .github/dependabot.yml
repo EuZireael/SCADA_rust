@@ -24,25 +24,18 @@ updates:
         update-types: ["minor"]
         patterns: ["anyhow", "flate2", "serde", "serde_json", "thiserror", "tokio", "uuid", "tempfile"]
 
-  # ---- Python: зависимости симулятора (simulator/requirements.txt) ----
-  - package-ecosystem: "pip"
-    directory: "/simulator"
+  # ---- Rust: PLC-симулятор и нагрузочный источник (отдельные пакеты со своими Cargo.lock) ----
+  - package-ecosystem: "cargo"
+    directories: ["/simulator", "/loadtest/loadsim"]
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
-    labels: ["dependencies", "python"]
+    labels: ["dependencies", "rust"]
     commit-message:
       prefix: "chore(deps)"
-    ignore:
-      # pymodbus 3.8 переименовал датастор, 3.15 переписал его — ломает core/modbus_server.py.
-      - dependency-name: "pymodbus"
-        versions: [">=3.8"]
-      # asyncua 2.x — мажор OPC UA-сервера, нужна ручная миграция симулятора.
-      - dependency-name: "asyncua"
-        versions: [">=2"]
-      # numpy 2.5+ требует Python ≥ 3.12, а симулятор держим на 3.11 (см. python ниже).
-      - dependency-name: "numpy"
-        versions: [">=2.5"]
+    groups:
+      rust-patch:
+        update-types: ["patch"]
 
   # ---- GitHub Actions: версии экшенов в workflow — одним PR ----
   - package-ecosystem: "github-actions"
@@ -71,10 +64,6 @@ updates:
     labels: ["dependencies", "docker"]
     commit-message:
       prefix: "chore(deps)"
-    ignore:
-      # asyncua 1.1.8 не работает на Python 3.12+ (баг issubclass) — держим 3.11.
-      - dependency-name: "python"
-        versions: [">=3.12"]
 
   # ---- Docker Compose: образы стенда (kafka, postgres) ----
   # Версию Kafka в services.kafka CI (ci.yml) держать такой же — его Dependabot не видит.

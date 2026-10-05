@@ -77,7 +77,7 @@ services:
       - "5020:5020"
       - "10000:10000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket;[socket.create_connection(('127.0.0.1',p),2).close() for p in (5020,10000)]"]
+      test: ["CMD", "/app/simulator", "healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 6

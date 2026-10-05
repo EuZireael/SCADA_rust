@@ -1,0 +1,539 @@
+//! PAC-контроллер симулятора — сервер протокола driver-master (Savushkin/ptusa).
+//!
+//! Говорит на «родном» протоколе PAC так, как его видно у эмулятора ptusa 2026.4.2.1 (сборка
+//! ptusa_main под ПК, проект BN1-МСА1): после accept — приветствие `PAC accept`, дальше кадры
+//! `'s' + ServiceID + FrameType + pidx + BE16-длина + payload`, тело ОТВЕТА = zlib(Lua), статус
+//! успеха 12. Версия протокола 104 (zlib + UTF-8); QuickLZ (легаси v102) не поддерживается.
+//!
+//! Сервер держит СНИМОК значений тегов (его обновляет цикл симулятора) и на запрос строит из него
+//! Lua. Реализованные команды (device_communicator::CMD):
+//!   GET_INFO_ON_CONNECT(10)  — версия протокола, имя PAC, CRC параметров (handshake);
+//!   GET_DEVICES(100)         — объектная модель (устройства → поля);
+//!   GET_DEVICES_STATES(101)  — снимок по приборам: `t={LINE1V0={M=0, ST=1}, ...}` (основной опрос);
+//!   EXEC_DEVICE_COMMAND(102) — запись: Lua-команда `set_cmd` применяется к RW-тегу, в ответ код
+//!                              результата LE16 (0 — применено, 1 — нет такого RW-поля);
+//!   GET_PAC_ERRORS(103)      — заглушка «нет ошибок».
+//! Остальное — пустой ответ со статусом успеха, как у ptusa.
+
+use std::collections::{BTreeMap, HashMap};
+use std::io::Write;
+use std::sync::{Arc, Mutex};
+
+use anyhow::{Context, Result};
+use flate2::Compression;
+use flate2::write::ZlibEncoder;
+use regex::Regex;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+use tracing::{debug, info, warn};
+
+use crate::value::Value;
+
+const PROTOCOL_VERSION: u32 = 104;
+pub const CMD_GET_INFO_ON_CONNECT: u8 = 10;
+pub const CMD_GET_DEVICES: u8 = 100;
+pub const CMD_GET_DEVICES_STATES: u8 = 101;
+pub const CMD_EXEC_DEVICE_COMMAND: u8 = 102;
+pub const CMD_GET_PAC_ERRORS: u8 = 103;
+
+pub const BANNER: &[u8] = b"PAC accept";
+const NET_ID: u8 = b's';
+/// Так помечает успешный ответ ptusa.
+pub const STATUS_OK: u8 = 12;
+/// Драйвер трактует ответ[1] == 7 как ошибку.
+const STATUS_ERROR: u8 = 7;
+const REQUEST_HEADER_LEN: usize = 6;
+/// Длина ответа — 2 байта → сжатое тело ≤ 65535 байт.
+const MAX_BODY: usize = 0xFFFF;
+
+/// Код результата EXEC_DEVICE_COMMAND (LE16), как у ptusa: 0 — применено, 1 — нет.
+pub const EXEC_APPLIED: [u8; 2] = [0, 0];
+pub const EXEC_FAILED: [u8; 2] = [1, 0];
+
+#[derive(Debug, Clone)]
+pub struct PacField {
+    pub field: String,
+    /// node.id канала (ключ снимка).
+    pub address: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PacDevice {
+    pub device: String,
+    pub dev_type: String,
+    pub fields: Vec<PacField>,
+}
+
+/// Запись драйвера: (прибор, поле, индекс, значение) → применено ли.
+pub type WriteFn = dyn Fn(&str, &str, Option<u32>, &Value) -> bool + Send + Sync;
+
+pub struct PacModel {
+    name: String,
+    params_crc: u32,
+    devices: Vec<PacDevice>,
+    values: Mutex<HashMap<String, Value>>,
+    on_write: Box<WriteFn>,
+}
+
+impl PacModel {
+    pub fn new(name: &str, devices: Vec<PacDevice>, on_write: Box<WriteFn>) -> Self {
+        PacModel { name: name.to_string(), params_crc: 0, devices, values: Mutex::new(HashMap::new()), on_write }
+    }
+
+    /// Обновить снимок значений (node_id → значение). Цикл симулятора зовёт на каждом шаге.
+    pub fn update_snapshot(&self, values: HashMap<String, Value>) {
+        *self.values.lock().expect("снимок") = values;
+    }
+
+    /// Диспетчер команды драйвера. Возвращает (статус, тело ДО сжатия).
+    pub fn handle_command(&self, cmd: u8, payload: &[u8]) -> (u8, Vec<u8>) {
+        match cmd {
+            CMD_GET_INFO_ON_CONNECT => (STATUS_OK, self.build_info()),
+            CMD_GET_DEVICES => (STATUS_OK, self.build_devices()),
+            CMD_GET_DEVICES_STATES => (STATUS_OK, self.build_states()),
+            CMD_EXEC_DEVICE_COMMAND => {
+                let applied = self.apply_command(payload.get(1..).unwrap_or_default());
+                (STATUS_OK, if applied { EXEC_APPLIED } else { EXEC_FAILED }.to_vec())
+            }
+            CMD_GET_PAC_ERRORS => (STATUS_OK, b"errors={}\n".to_vec()),
+            other => {
+                // ptusa на незнакомую команду отвечает пустым телом со статусом успеха.
+                warn!("PAC: неизвестная команда {other}");
+                (STATUS_OK, Vec::new())
+            }
+        }
+    }
+
+    fn build_info(&self) -> Vec<u8> {
+        let name = self.name.replace('\\', "\\\\").replace('"', "\\\"");
+        format!(
+            "protocol_version = {PROTOCOL_VERSION}; PAC_name = \"{name}\"; is_reset_params = 0;params_CRC={};\n",
+            self.params_crc
+        )
+        .into_bytes()
+    }
+
+    /// Формат ответов devices/states: 2 байта devices_request_id (LE; конфигурация не меняется —
+    /// константа 1) + Lua-текст.
+    fn with_request_id(lua: String) -> Vec<u8> {
+        let mut out = 1u16.to_le_bytes().to_vec();
+        out.extend(lua.into_bytes());
+        out
+    }
+
+    /// Объектная модель: `devices['1V1']={type='V',fields={'ST','M'}}`.
+    fn build_devices(&self) -> Vec<u8> {
+        let mut lua = String::from("devices={}\n");
+        for d in &self.devices {
+            let fields: Vec<String> = d.fields.iter().map(|f| format!("'{}'", f.field)).collect();
+            lua.push_str(&format!(
+                "devices['{}']={{type='{}',fields={{{}}}}}\n",
+                d.device,
+                d.dev_type,
+                fields.join(",")
+            ));
+        }
+        Self::with_request_id(lua)
+    }
+
+    /// Снимок по приборам, как device_manager::save_device у ptusa:
+    /// `t={ LINE1V0={M=0, ST=1}, OBJECT1={CMD=0, RT_PAR_F={[12]=0.5}}, ... }`. Канал читают как
+    /// `t[прибор][поле]`; поле-массив `RT_PAR_F[12]` уходит элементом таблицы `RT_PAR_F`.
+    fn build_states(&self) -> Vec<u8> {
+        let values = self.values.lock().expect("снимок");
+        let array_field = array_field_re();
+        let mut lua = String::from("t=\n\t{\n");
+        for d in &self.devices {
+            let mut fields: Vec<String> = Vec::new();
+            let mut arrays: Vec<(String, BTreeMap<u32, &Value>)> = Vec::new();
+            for f in &d.fields {
+                let Some(value) = values.get(&f.address) else { continue };
+                if let Some(m) = array_field.captures(&f.field)
+                    && let Ok(idx) = m["idx"].parse::<u32>()
+                {
+                    let name = m["name"].to_string();
+                    match arrays.iter_mut().find(|(n, _)| *n == name) {
+                        Some((_, items)) => {
+                            items.insert(idx, value);
+                        }
+                        None => arrays.push((name, BTreeMap::from([(idx, value)]))),
+                    }
+                } else {
+                    fields.push(format!("{}={}", lua_key(&f.field), lua_value(value)));
+                }
+            }
+            for (name, items) in arrays {
+                let inner: Vec<String> = items.iter().map(|(i, v)| format!("[{i}]={}", lua_value(v))).collect();
+                fields.push(format!("{}={{{}}}", lua_key(&name), inner.join(", ")));
+            }
+            if !fields.is_empty() {
+                lua.push_str(&format!("\t{}={{{}}},\n", lua_key(&d.device), fields.join(", ")));
+            }
+        }
+        lua.push_str("\t}\n");
+        Self::with_request_id(lua)
+    }
+
+    /// CMD_EXEC_DEVICE_COMMAND: разобрать `set_cmd` и применить к RW-тегу.
+    fn apply_command(&self, raw: &[u8]) -> bool {
+        let text = String::from_utf8_lossy(raw);
+        let Some(m) = set_cmd_re().captures(&text) else {
+            info!("PAC: команда записи не распознана: {text:?}");
+            return false;
+        };
+        let (dev, field) = (&m["dev"], &m["field"]);
+        let index = m["idx"].parse::<u32>().ok();
+        let value = parse_scalar(&m["val"]);
+        info!("PAC: запись {dev}.{field} = {value:?}");
+        (self.on_write)(dev, field, index, &value)
+    }
+}
+
+/// Поле-массив канала: `RT_PAR_F[12]` или `PAR_MAIN[1].P_CZAD_S` (хвост — подпись канала).
+fn array_field_re() -> &'static Regex {
+    static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^(?P<name>[^\[\]]+)\[(?P<idx>\d+)\]").expect("регэксп"))
+}
+
+/// Разбор Lua-команды записи: `__1V1:set_cmd('ST', 1, 1)` или `..., 'value')`. Ведущие
+/// подчёркивания (у имён с цифры) съедаются: dev='1V1', field='ST', idx=1, val='1'.
+fn set_cmd_re() -> &'static Regex {
+    static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"_*(?P<dev>\w+):set_cmd\(\s*'(?P<field>\w+)'\s*,\s*(?P<idx>\d+)\s*,\s*'?(?P<val>[^')]+)'?\s*\)")
+            .expect("регэксп")
+    })
+}
+
+fn parse_scalar(text: &str) -> Value {
+    if let Ok(i) = text.parse::<i64>() {
+        Value::Int(i)
+    } else if let Ok(f) = text.parse::<f64>() {
+        Value::Float(f)
+    } else {
+        Value::Text(text.to_string())
+    }
+}
+
+/// Ключ Lua-таблицы: идентификатор как есть (LINE1V0), иначе `["1V1"]`.
+fn lua_key(name: &str) -> String {
+    let mut chars = name.chars();
+    let ident = chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if ident { name.to_string() } else { format!("[\"{}\"]", name.replace('\\', "\\\\").replace('"', "\\\"")) }
+}
+
+/// Значение тега → Lua-литерал. bool → 1/0 (в протоколе это T_NUMBER), float — компактно (`%.6g`),
+/// строка (рецепт, список программ) — в кавычках, как `CUR_REC='…'` у ptusa.
+fn lua_value(value: &Value) -> String {
+    match value {
+        Value::Bool(b) => u8::from(*b).to_string(),
+        Value::Int(i) => i.to_string(),
+        Value::Float(f) => format_g6(*f),
+        Value::Text(s) => format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n")),
+    }
+}
+
+/// Как `f"{x:.6g}"` в Python: 6 значащих цифр, без хвостовых нулей, экспонента при exp < −4 или ≥ 6.
+pub fn format_g6(x: f64) -> String {
+    if x.is_nan() {
+        return "nan".into();
+    }
+    if x.is_infinite() {
+        return if x > 0.0 { "inf" } else { "-inf" }.into();
+    }
+    if x == 0.0 {
+        return if x.is_sign_negative() { "-0" } else { "0" }.into();
+    }
+    let sci = format!("{x:.5e}"); // d.dddddeN — уже округлено до 6 значащих
+    let (mantissa, exp) = sci.split_once('e').expect("экспонента");
+    let exp: i32 = exp.parse().expect("порядок");
+    let strip = |s: &str| -> String {
+        if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s.to_string() }
+    };
+    if !(-4..6).contains(&exp) {
+        let sign = if exp < 0 { '-' } else { '+' };
+        format!("{}e{sign}{:02}", strip(mantissa), exp.abs())
+    } else {
+        strip(&format!("{:.*}", (5 - exp).max(0) as usize, x))
+    }
+}
+
+fn compress(body: &[u8]) -> Vec<u8> {
+    let mut enc = ZlibEncoder::new(Vec::new(), Compression::default());
+    enc.write_all(body).expect("zlib");
+    enc.finish().expect("zlib")
+}
+
+/// Кадр ответа: 's', статус, pidx (эхо), BE16-длина сжатого тела, zlib(body).
+fn response(pidx: u8, status: u8, body: &[u8]) -> Vec<u8> {
+    let packed = if status == STATUS_OK && !body.is_empty() { compress(body) } else { Vec::new() };
+    if packed.len() > MAX_BODY {
+        tracing::error!("PAC: сжатый ответ {}B > {MAX_BODY} — не влезает в длину", packed.len());
+        return vec![NET_ID, STATUS_ERROR, pidx, 0, 0];
+    }
+    let mut out = vec![NET_ID, status, pidx, (packed.len() >> 8) as u8, (packed.len() & 0xFF) as u8];
+    out.extend(packed);
+    out
+}
+
+async fn handle(mut stream: TcpStream, model: Arc<PacModel>) -> Result<()> {
+    let peer = stream.peer_addr().ok();
+    info!("PAC: драйвер подключился {peer:?}");
+    stream.write_all(BANNER).await?;
+    loop {
+        let mut header = [0u8; REQUEST_HEADER_LEN];
+        if stream.read_exact(&mut header).await.is_err() {
+            break;
+        }
+        if header[0] != NET_ID {
+            warn!("PAC: неверный заголовок кадра от {peer:?} — рву связь");
+            break;
+        }
+        let pidx = header[3];
+        let length = (usize::from(header[4]) << 8) | usize::from(header[5]);
+        let mut payload = vec![0u8; length];
+        if length > 0 && stream.read_exact(&mut payload).await.is_err() {
+            break;
+        }
+        let cmd = payload.first().copied().unwrap_or(0);
+        let (status, body) = model.handle_command(cmd, &payload);
+        stream.write_all(&response(pidx, status, &body)).await?;
+    }
+    info!("PAC: драйвер отключился {peer:?}");
+    Ok(())
+}
+
+/// Принимает соединения, пока жив процесс.
+pub async fn serve(listener: TcpListener, model: Arc<PacModel>) {
+    if let Ok(addr) = listener.local_addr() {
+        info!("PAC (driver-master v{PROTOCOL_VERSION}): порт {}", addr.port());
+    }
+    loop {
+        match listener.accept().await {
+            Ok((stream, _)) => {
+                let model = model.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = handle(stream, model).await {
+                        debug!("PAC: соединение закрыто: {e}");
+                    }
+                });
+            }
+            Err(e) => {
+                warn!("PAC: accept: {e}");
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+    }
+}
+
+/// Клиентский запрос driver-master: кадр → распакованное тело ответа.
+async fn request(stream: &mut TcpStream, pidx: u8, cmd: u8) -> Result<Vec<u8>> {
+    stream.write_all(&[NET_ID, 1, 1, pidx, 0, 1, cmd]).await?;
+    let mut hdr = [0u8; 5];
+    stream.read_exact(&mut hdr).await?;
+    anyhow::ensure!(hdr[0] == NET_ID && hdr[1] != STATUS_ERROR, "PAC: ответ {hdr:?} на команду {cmd}");
+    let mut packed = vec![0u8; (usize::from(hdr[3]) << 8) | usize::from(hdr[4])];
+    stream.read_exact(&mut packed).await?;
+    if packed.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut body = Vec::new();
+    std::io::Read::read_to_end(&mut flate2::read::ZlibDecoder::new(&packed[..]), &mut body)?;
+    Ok(body)
+}
+
+/// Мини-«драйвер» PAC для отладки (как `tools/pac_probe.py` прежнего симулятора): handshake, объектная
+/// модель и снимок состояний любого PAC — симулятора или настоящей прошивки ptusa — печатаются Lua-текстом.
+pub async fn probe(host: &str, port: u16) -> Result<()> {
+    let mut stream = tokio::time::timeout(std::time::Duration::from_secs(3), TcpStream::connect((host, port)))
+        .await
+        .context("таймаут подключения")??;
+    let mut banner = vec![0u8; BANNER.len()];
+    stream.read_exact(&mut banner).await?;
+    anyhow::ensure!(banner == BANNER, "нет приветствия PAC accept: {banner:?}");
+    println!(
+        "== GET_INFO_ON_CONNECT ==\n{}",
+        String::from_utf8_lossy(&request(&mut stream, 1, CMD_GET_INFO_ON_CONNECT).await?)
+    );
+    for (pidx, cmd, title) in [(2, CMD_GET_DEVICES, "GET_DEVICES"), (3, CMD_GET_DEVICES_STATES, "GET_DEVICES_STATES")] {
+        let body = request(&mut stream, pidx, cmd).await?;
+        // Первые 2 байта — devices_request_id (LE).
+        println!("== {title} ==\n{}", String::from_utf8_lossy(body.get(2..).unwrap_or_default()));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Read;
+
+    use super::*;
+
+    fn devices() -> Vec<PacDevice> {
+        let f = |field: &str, address: &str| PacField { field: field.into(), address: address.into() };
+        vec![
+            PacDevice { device: "LINE1V0".into(), dev_type: "V".into(), fields: vec![f("M", "460"), f("ST", "385")] },
+            PacDevice {
+                device: "OBJECT1".into(),
+                dev_type: "Параметры_линии".into(),
+                fields: vec![
+                    f("RT_PAR_F[12]", "96"),
+                    f("RT_PAR_F[7]", "91"),
+                    f("PAR_MAIN[1].P_CZAD_S", "6"),
+                    f("CUR_REC", "78"),
+                ],
+            },
+            PacDevice { device: "1V1".into(), dev_type: "V".into(), fields: vec![f("ST", "9001")] },
+        ]
+    }
+
+    fn values() -> HashMap<String, Value> {
+        HashMap::from([
+            ("460".into(), Value::Int(0)),
+            ("385".into(), Value::Int(1)),
+            ("96".into(), Value::Float(0.5)),
+            ("91".into(), Value::Float(1.25)),
+            ("6".into(), Value::Float(1.0)),
+            ("78".into(), Value::Text("Танк №1 'сырой'".into())),
+            ("9001".into(), Value::Bool(true)),
+        ])
+    }
+
+    fn model(on_write: Box<WriteFn>) -> PacModel {
+        let m = PacModel::new("BN1-МСА1", devices(), on_write);
+        m.update_snapshot(values());
+        m
+    }
+
+    fn states_lua(m: &PacModel) -> String {
+        let (status, body) = m.handle_command(CMD_GET_DEVICES_STATES, &[CMD_GET_DEVICES_STATES]);
+        assert_eq!(status, STATUS_OK);
+        assert_eq!(&body[..2], &1u16.to_le_bytes(), "первые 2 байта — devices_request_id");
+        String::from_utf8(body[2..].to_vec()).unwrap()
+    }
+
+    #[test]
+    fn states_are_keyed_by_device_like_ptusa() {
+        let lua = states_lua(&model(Box::new(|_, _, _, _| false)));
+        assert!(lua.starts_with("t=\n\t{\n"), "{lua}");
+        assert!(lua.contains("\tLINE1V0={M=0, ST=1},\n"), "{lua}");
+        assert!(!lua.contains("tags["), "адресация по channelId осталась в прошлом");
+    }
+
+    #[test]
+    fn array_fields_become_lua_tables() {
+        let lua = states_lua(&model(Box::new(|_, _, _, _| false)));
+        // PAR_MAIN[1].P_CZAD_S — хвост после ] подпись канала, в ПЛК это PAR_MAIN[1].
+        assert!(lua.contains("PAR_MAIN={[1]=1}"), "{lua}");
+        assert!(lua.contains("RT_PAR_F={[7]=1.25, [12]=0.5}"), "{lua}");
+    }
+
+    #[test]
+    fn strings_are_quoted_and_names_escaped() {
+        let lua = states_lua(&model(Box::new(|_, _, _, _| false)));
+        assert!(lua.contains("CUR_REC='Танк №1 \\'сырой\\''"), "{lua}");
+        assert!(lua.contains("[\"1V1\"]={ST=1}"), "имя с цифры — не Lua-идентификатор: {lua}");
+    }
+
+    #[test]
+    fn devices_and_info() {
+        let m = model(Box::new(|_, _, _, _| false));
+        let (_, body) = m.handle_command(CMD_GET_DEVICES, &[CMD_GET_DEVICES]);
+        let lua = String::from_utf8(body[2..].to_vec()).unwrap();
+        assert!(lua.starts_with("devices={}\n"));
+        assert!(lua.contains("devices['LINE1V0']={type='V',fields={'M','ST'}}\n"), "{lua}");
+        let (_, info) = m.handle_command(CMD_GET_INFO_ON_CONNECT, &[CMD_GET_INFO_ON_CONNECT]);
+        let info = String::from_utf8(info).unwrap();
+        assert!(info.starts_with("protocol_version = 104;"), "{info}");
+        assert!(info.contains("PAC_name = \"BN1-МСА1\""), "{info}");
+        assert_eq!(m.handle_command(CMD_GET_PAC_ERRORS, &[CMD_GET_PAC_ERRORS]), (STATUS_OK, b"errors={}\n".to_vec()));
+    }
+
+    #[test]
+    fn exec_command_reports_result_code() {
+        type Logged = (String, String, Option<u32>, Value);
+        let applied: Arc<Mutex<Vec<Logged>>> = Arc::default();
+        let log = applied.clone();
+        let m = model(Box::new(move |dev, field, idx, val| {
+            log.lock().unwrap().push((dev.into(), field.into(), idx, val.clone()));
+            dev == "LINE1V0"
+        }));
+        let run = |text: &str| {
+            let mut payload = vec![CMD_EXEC_DEVICE_COMMAND];
+            payload.extend(text.as_bytes());
+            m.handle_command(CMD_EXEC_DEVICE_COMMAND, &payload)
+        };
+        assert_eq!(run("__LINE1V0:set_cmd('M', 1, 1)"), (STATUS_OK, EXEC_APPLIED.to_vec()));
+        assert_eq!(applied.lock().unwrap()[0], ("LINE1V0".into(), "M".into(), Some(1), Value::Int(1)));
+        assert_eq!(run("__NO_SUCH:set_cmd('M', 1, 1)").1, EXEC_FAILED.to_vec());
+        assert_eq!(run("garbage").1, EXEC_FAILED.to_vec());
+        // Поле-массив — индексом отдельным аргументом; дробное и строковое значение.
+        run("__LINE1V0:set_cmd('RT_PAR_F', 12, 7.5)");
+        run("__LINE1V0:set_cmd('CUR_REC', 1, 'abc')");
+        let log = applied.lock().unwrap();
+        assert_eq!(log[2], ("LINE1V0".into(), "RT_PAR_F".into(), Some(12), Value::Float(7.5)));
+        assert_eq!(log[3].3, Value::Text("abc".into()));
+    }
+
+    #[test]
+    fn unknown_command_is_empty_success() {
+        assert_eq!(model(Box::new(|_, _, _, _| false)).handle_command(55, &[55]), (STATUS_OK, Vec::new()));
+    }
+
+    #[test]
+    fn g6_matches_python_formatting() {
+        for (x, s) in [
+            (0.0, "0"),
+            (1.0, "1"),
+            (21.5, "21.5"),
+            (0.5, "0.5"),
+            (1.25, "1.25"),
+            (100_000.0, "100000"),
+            (999_999.5, "1e+06"),
+            (1_234_567.0, "1.23457e+06"),
+            (0.0001, "0.0001"),
+            (0.00001, "1e-05"),
+            (-6.54321987, "-6.54322"),
+            (0.1 + 0.2, "0.3"),
+            (1e21, "1e+21"),
+        ] {
+            assert_eq!(format_g6(x), s, "{x}");
+        }
+    }
+
+    #[tokio::test]
+    async fn socket_exchange_starts_with_banner() {
+        let m = Arc::new(model(Box::new(|_, _, _, _| false)));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(serve(listener, m));
+        let mut s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let mut banner = vec![0u8; BANNER.len()];
+        s.read_exact(&mut banner).await.unwrap();
+        assert_eq!(banner, BANNER);
+
+        s.write_all(&[b's', 1, 1, 7, 0, 1, CMD_GET_INFO_ON_CONNECT]).await.unwrap();
+        let mut hdr = [0u8; 5];
+        s.read_exact(&mut hdr).await.unwrap();
+        assert_eq!(&hdr[..3], &[b's', STATUS_OK, 7], "эхо pidx и статус успеха ptusa");
+        let mut packed = vec![0u8; (usize::from(hdr[3]) << 8) | usize::from(hdr[4])];
+        s.read_exact(&mut packed).await.unwrap();
+        let mut info = String::new();
+        flate2::read::ZlibDecoder::new(&packed[..]).read_to_string(&mut info).unwrap();
+        assert!(info.starts_with("protocol_version = 104;"), "{info}");
+        assert!(info.contains("PAC_name = \"BN1-МСА1\""), "{info}");
+
+        // Неверный заголовок — соединение рвётся.
+        // Клиент `probe` на том же сервере (и тест запроса целиком).
+        let states = request(&mut s, 9, CMD_GET_DEVICES_STATES).await.unwrap();
+        assert!(String::from_utf8_lossy(&states).contains("LINE1V0={M=0, ST=1}"));
+
+        s.write_all(&[b'x', 0, 0, 0, 0, 0]).await.unwrap();
+        let mut rest = Vec::new();
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(3), s.read_to_end(&mut rest)).await.unwrap().unwrap(),
+            0
+        );
+    }
+}
