@@ -56,7 +56,8 @@ until_ok() {
   done
 }
 
-metric() { curl -fs "$GW/actuator/prometheus" | awk -v n="$1" '$1 == n || index($1, n "{") == 1 { print $NF; exit }'; }
+# awk читает весь вывод до конца (без exit): ранний выход рвал бы конвейер, и curl с pipefail давал код 23.
+metric() { curl -fs "$GW/actuator/prometheus" | awk -v n="$1" '!seen && ($1 == n || index($1, n "{") == 1) { print $NF; seen = 1 }'; }
 health() { curl -fs "$GW/actuator/health"; }
 # json <выражение над d>: значение из JSON на stdin.
 json() { python3 -c "import sys, json; d = json.load(sys.stdin); print($1)"; }
