@@ -1,0 +1,25 @@
+[package]
+name = "ptusa-opcua"
+version = "0.1.0"
+edition = "2024"
+description = "OPC UA-фасад эмулятора мойки: все каналы станции из прошивки ptusa (driver-master) — узлами OPC UA"
+
+# Отдельный пакет (как simulator и loadtest/loadsim): не входит в сборку шлюза и его образа.
+[workspace]
+
+[dependencies]
+anyhow = "1"
+async-opcua = { version = "0.19.0", features = ["server"] }
+flate2 = "1"
+mlua = { version = "0.12.1", features = ["lua51", "vendored", "send"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml_ng = "0.10"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+async-opcua = { version = "0.19.0", features = ["server", "client"] }
+
+[profile.release]
+lto = "thin"

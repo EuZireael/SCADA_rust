@@ -64,22 +64,26 @@ jobs:
       - name: Build image (smoke)
         run: docker build -t scada-simulator .
 
-  # OPC UA-фасад эмулятора ptusa (ptusa-opcua/): разбор driver-master и запись set_cmd.
+  # OPC UA-фасад эмулятора ptusa на Rust (ptusa-opcua/): снимок PAC, запись set_cmd, песочница Lua.
   ptusa-opcua:
-    name: ptusa-opcua tests (pytest)
+    name: ptusa-opcua (Rust fmt, clippy & test)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ptusa-opcua
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          python-version: '3.11'
-          cache: pip
-          cache-dependency-path: ptusa-opcua/requirements.txt
-      - run: pip install -r requirements.txt pytest
-      - run: python -m pytest -q tests
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ptusa-opcua
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+      - name: Build image (smoke)
+        run: docker build -t ptusa-opcua .
 
   # Интеграционные тесты (#[ignore] в обычном cargo test): клиенты протоколов и шлюз
   # целиком против своего PLC-симулятора (simulator/), Kafka и Postgres.

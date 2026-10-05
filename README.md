@@ -138,7 +138,7 @@ SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094 \
 ## Станция мойки целиком по OPC UA
 
 `config/stations/BN1_MCA1.yaml` — 1834 канала станции BN1-МСА1 на одном OPC UA-контроллере; данные
-даёт эмулятор мойки (прошивка ptusa) через фасад `ptusa-opcua/` (driver-master → OPC UA, запись —
+даёт эмулятор мойки (прошивка ptusa) через фасад `ptusa-opcua/` (Rust: driver-master → OPC UA, запись —
 `set_cmd`). Запуск — `MOIKA_PROJECT=<проект ПЛК> ./up-moika.sh`, подключение монитора —
 `docs/MONITOR_INTEGRATION.md`, генерация конфигурации — `tools/station_config.sh`.
 
