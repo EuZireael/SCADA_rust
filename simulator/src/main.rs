@@ -3,6 +3,7 @@
 //!
 //!   simulator [config/replay_config.yaml]     запуск
 //!   simulator healthcheck                     проверка живости (порты Modbus и PAC) для контейнера
+//!   simulator conformance [host] [port] [config]  проверка: PAC ведёт себя при записи как описано в конфигурации
 //!   simulator probe-pac [host] [port]         снимок любого PAC (симулятор, прошивка ptusa): по умолчанию localhost:10000
 //!
 //! Окружение: OPCUA_ENDPOINT (напр. opc.tcp://simulator:4840 — адрес привязки и анонса вместо
@@ -10,9 +11,12 @@
 //! защищённые конечные точки (Basic256Sha256) для этого пользователя.
 
 mod config;
+mod conformance;
+mod luatab;
 mod modbus;
 mod opcua;
 mod pac;
+mod pac_client;
 mod plc;
 mod replay;
 mod tag;
@@ -87,6 +91,12 @@ async fn main() -> Result<()> {
         .init();
     match std::env::args().nth(1).as_deref() {
         Some("healthcheck") => return healthcheck().await,
+        Some("conformance") => {
+            let host = std::env::args().nth(2).unwrap_or_else(|| "127.0.0.1".into());
+            let port = std::env::args().nth(3).map(|p| p.parse()).transpose().context("порт")?.unwrap_or(10000);
+            let cfg = std::env::args().nth(4).unwrap_or_else(|| "config/replay_config.yaml".into());
+            return conformance::run(&host, port, Path::new(&cfg)).await;
+        }
         Some("probe-pac") => {
             let host = std::env::args().nth(2).unwrap_or_else(|| "localhost".into());
             let port = std::env::args().nth(3).map(|p| p.parse()).transpose().context("порт")?.unwrap_or(10000);

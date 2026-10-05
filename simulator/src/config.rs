@@ -143,6 +143,32 @@ pub struct TagCfg {
     pub replay_max: Option<f64>,
     #[serde(default)]
     pub replay_format: Option<String>,
+    /// Что делает запись оператора с этим тегом (поведение настоящей прошивки ptusa, снятое с эмулятора мойки):
+    /// `hold` (по умолчанию) — значение принимается и держится; `ignore` — команда принимается (код 0), но значение
+    /// считает программа ПЛК (датчики, обратная связь, регистры команд и состояния техобъектов) — оно не меняется.
+    #[serde(default)]
+    pub write: Option<String>,
+    /// Запись действует, только если другое поле прибора имеет значение (например, `ST` клапана `LINE1V0`
+    /// принимается лишь в ручном режиме: `{field: M, equals: 1}`); иначе команда принимается, но значение
+    /// остаётся за программой. Как только условие пропало — значение возвращается к тому, что считает программа.
+    #[serde(default)]
+    pub write_requires: Option<RequiresCfg>,
+    /// Прошивка хранит поле целым: записанное `7.5` становится `7`.
+    #[serde(default)]
+    pub write_int: bool,
+    /// Поле — состояние (клапан, выход): целая часть записанного, отличная от нуля, даёт 1.
+    #[serde(default)]
+    pub write_state: bool,
+}
+
+/// Условие действия записи: поле `field` прибора `device` (по умолчанию — того же прибора) равно `equals`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RequiresCfg {
+    #[serde(default, deserialize_with = "opt_text")]
+    pub device: Option<String>,
+    #[serde(deserialize_with = "text")]
+    pub field: String,
+    pub equals: f64,
 }
 
 impl TagCfg {
