@@ -58,10 +58,14 @@ SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094 \
 
 ## Симулятор и конфигурация станции
 
-- `simulator/` — PLC-симулятор на Python: OPC UA, Modbus TCP и PAC (driver-master в формате
-  ptusa) в одном процессе, проигрывает 5-суточный архив станции BN1_MCA1 (`data/`). Перенесён
-  из `savushkin-dev/scada-gateway` (`plc-simulator`, коммит `76db32c`) и дальше живёт здесь.
-  Тесты: `cd simulator && python -m pytest tests` (Python 3.11).
+- `simulator/` — PLC-симулятор на Rust: OPC UA (async-opcua), Modbus TCP и PAC (driver-master в
+  формате ptusa) в одном процессе, проигрывает 5-суточный архив станции BN1_MCA1
+  (`data/archive_replay.bin.gz`). Начинался как Python-симулятор `savushkin-dev/scada-gateway`
+  (`plc-simulator`, коммит `76db32c`), переписан на Rust (файлы остались в истории git).
+  Отдельный пакет со своим `Cargo.lock`: `cd simulator && cargo run --release -- config/replay_config.yaml`
+  (`OPCUA_ENDPOINT`, `MODBUS_PORT`, `PAC_PORT`), тесты — `cargo test`, образ — `docker build ./simulator`.
+  `simulator probe-pac [host] [порт]` печатает handshake, объектную модель и снимок любого PAC —
+  симулятора или настоящей прошивки ptusa.
 - `config/controllers.yaml` — 2517 каналов на трёх контроллерах; согласован с
   `simulator/config/replay_config.yaml` (одинаковые channelId, типы, адреса и право записи).
 - `scripts/ptusa_emulator.sh <проект ПЛК>` — эмулятор настоящего PAC (прошивка ptusa под ПК)
@@ -258,7 +262,7 @@ migrations/      схема БД (совместима с Flyway-схемой Ja
 tests/           интеграционные тесты (simulator.rs — протоколы, e2e.rs — шлюз целиком,
                  faults.rs — обрыв связи; common/ — запуск шлюза, TCP-прокси)
 config/          controllers.yaml — каналы станции
-simulator/       PLC-симулятор (Python) + его тесты
+simulator/       PLC-симулятор (Rust, отдельный пакет) + конфигурация и архив replay
 scripts/         эмулятор настоящего PAC (ptusa)
 docker-compose.yml   стенд целиком
 CHANGELOG.md         история версий (текст GitHub Release)

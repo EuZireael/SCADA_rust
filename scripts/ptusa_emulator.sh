@@ -7,7 +7,7 @@
 #
 #   ./scripts/ptusa_emulator.sh <папка проекта ПЛК> [порт]   # порт по умолчанию 10100
 #   PTUSA_OPC=r ./scripts/ptusa_emulator.sh ...               # + OPC UA ptusa на :4841
-#   python3 simulator/tools/pac_probe.py 127.0.0.1 10100      # посмотреть снимок t[прибор][поле]
+#   simulator/target/release/simulator probe-pac 127.0.0.1 10100   # посмотреть снимок t[прибор][поле]
 #   docker rm -f ptusa-emulator                             # остановить
 #
 # Проект монтируется только на чтение; бинарник копируется в контейнер (в исходной

@@ -2549,6 +2549,6 @@ modbus_port: 5020
 pac_port: 10000
 replay:
   enabled: true
-  data_path: data/archive_replay.pkl.gz
+  data_path: data/archive_replay.bin.gz
   speed: 1.0
   loop: true
