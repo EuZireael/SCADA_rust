@@ -8,7 +8,7 @@ mod common;
 
 use std::time::Duration;
 
-use common::{OP_TIMEOUT, controller, toggled, type_matches};
+use common::{OP_TIMEOUT, controller, sim_host, toggled, type_matches};
 use scada_gateway::modbus::{self, ModbusClient};
 use scada_gateway::model::{ControllerKind, Protocol, Quality, TagValue};
 use scada_gateway::opcua::{self, OpcConnection};
@@ -17,6 +17,24 @@ use scada_gateway::pac::{self, PacConnection};
 const NEED_SIM: &str = "нужен симулятор: SIM_HOST=… cargo test -- --ignored";
 
 // ---------------------------------------------------------------------------- OPC UA --
+
+/// Клиент async-opcua берёт первый адрес из DNS: `localhost` → `::1`, а симулятор слушает только IPv4.
+/// Шлюз сам выбирает доступный адрес (`opcua::reachable_url`), поэтому с `localhost` подключение есть.
+#[tokio::test]
+#[ignore = "нужен симулятор на этой машине: SIM_HOST=127.0.0.1 cargo test -- --ignored"]
+async fn opcua_connects_through_localhost_name() {
+    if !matches!(sim_host().as_str(), "127.0.0.1" | "localhost") {
+        eprintln!("симулятор не на этой машине — проверка имени localhost пропущена");
+        return;
+    }
+    let ctrl = controller(ControllerKind::OpcUa);
+    let url = ctrl.endpoint.replace("127.0.0.1", "localhost");
+    let tag = ctrl.tags.iter().find(|t| t.protocol == Protocol::OpcUa).expect("OPC UA-тег");
+    let conn = OpcConnection::connect(&url, OP_TIMEOUT).await.unwrap_or_else(|e| panic!("{url}: {e:#}"));
+    let values = conn.read(&[opcua::read_value_id(&tag.node_id).unwrap()]).await.unwrap();
+    assert!(opcua::reading(&values[0]).1 == Quality::Good, "{url}: {:?}", values[0]);
+    conn.close().await;
+}
 
 #[tokio::test]
 #[ignore = "нужен симулятор: SIM_HOST=… cargo test -- --ignored"]

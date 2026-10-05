@@ -7,6 +7,7 @@
 //! Чтение — пачками по [`READ_CHUNK`] узлов: по умолчанию клиент декодирует массивы не
 //! длиннее 1000 элементов, а у реальных серверов бывает MaxNodesPerRead.
 
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,8 +18,10 @@ use opcua::types::{
     AttributeId, DataValue, EndpointDescription, MessageSecurityMode, NodeId, NumericRange, ReadValueId, StatusCode,
     TimestampsToReturn, UAString, UserTokenPolicy, Variant, WriteValue,
 };
+use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
+use tracing::info;
 
 use crate::model::{self, Quality, TagValue, Timestamp};
 
@@ -32,8 +35,56 @@ pub struct OpcConnection {
     op_timeout: Duration,
 }
 
+/// Сколько ждать TCP-подключения при выборе адреса из нескольких.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Адрес из `opc.tcp://host:port/путь`, который стоит отдать клиенту OPC UA.
+///
+/// Клиент async-opcua берёт ПЕРВЫЙ адрес из DNS и не пробует остальные: `localhost` → `::1` первым, а
+/// сервер на `0.0.0.0` слушает только IPv4 — подключения нет, хотя `127.0.0.1` рядом. Поэтому имя с
+/// несколькими адресами проверяем сами: первый доступный — как есть (имя остаётся в URL), иначе
+/// подставляем IP-адрес, который ответил. Имя из одного адреса, IP-адрес и чужая схема — без изменений.
+pub async fn reachable_url(url: &str, probe_timeout: Duration) -> String {
+    let Some(rest) = url.strip_prefix("opc.tcp://") else { return url.to_string() };
+    let (authority, path) = rest.find('/').map_or((rest, ""), |i| rest.split_at(i));
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((h, p)) => match p.parse::<u16>() {
+            Ok(p) => (h, p),
+            Err(_) => return url.to_string(),
+        },
+        None => (authority, 4840),
+    };
+    if host.is_empty() || host.starts_with('[') || host.parse::<IpAddr>().is_ok() {
+        return url.to_string();
+    }
+    let Ok(addrs) = tokio::net::lookup_host((host, port)).await else { return url.to_string() };
+    let addrs: Vec<SocketAddr> = addrs.collect();
+    if addrs.len() < 2 {
+        return url.to_string();
+    }
+    match pick_address(&addrs, probe_timeout).await {
+        Some(addr) if addr != addrs[0] => {
+            info!("OPC UA {host}: {} недоступен — подключаюсь к {addr}", addrs[0]);
+            format!("opc.tcp://{addr}{path}")
+        }
+        _ => url.to_string(),
+    }
+}
+
+/// Первый из адресов, к которому удалось открыть TCP-соединение.
+async fn pick_address(addrs: &[SocketAddr], probe_timeout: Duration) -> Option<SocketAddr> {
+    for &addr in addrs {
+        if matches!(timeout(probe_timeout, TcpStream::connect(addr)).await, Ok(Ok(_))) {
+            return Some(addr);
+        }
+    }
+    None
+}
+
 impl OpcConnection {
     pub async fn connect(url: &str, op_timeout: Duration) -> Result<Self> {
+        let url = reachable_url(url, op_timeout.min(PROBE_TIMEOUT)).await;
+        let url = url.as_str();
         let mut client = ClientBuilder::new()
             .application_name("SCADA Gateway")
             .application_uri("urn:scada:gateway")
@@ -223,6 +274,47 @@ mod tests {
         assert_eq!(classify_write_status(StatusCode::from(0x801F_0000u32)), "REJECTED_NOT_WRITABLE");
         assert_eq!(classify_write_status(StatusCode::from(0x8074_0000u32)), "REJECTED_TYPE_MISMATCH");
         assert_eq!(classify_write_status(StatusCode::from(0x8002_0000u32)), "FAILED_WRITE");
+    }
+
+    /// Первый адрес недоступен (на `::1` никто не слушает), второй отвечает: выбираем второй.
+    #[tokio::test]
+    async fn first_reachable_address_is_picked() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (dead, alive): (SocketAddr, SocketAddr) =
+            (format!("[::1]:{port}").parse().unwrap(), listener.local_addr().unwrap());
+        assert_eq!(pick_address(&[dead, alive], Duration::from_secs(1)).await, Some(alive));
+        assert_eq!(pick_address(&[alive, dead], Duration::from_secs(1)).await, Some(alive));
+        assert_eq!(pick_address(&[dead], Duration::from_millis(300)).await, None);
+    }
+
+    #[tokio::test]
+    async fn urls_without_a_name_with_several_addresses_are_unchanged() {
+        let t = Duration::from_millis(300);
+        for url in [
+            "opc.tcp://127.0.0.1:4840",
+            "opc.tcp://[::1]:4840/x",
+            "opc.tcp://host:notaport",
+            "http://localhost:4840",
+            "opc.tcp://:4840",
+        ] {
+            assert_eq!(reachable_url(url, t).await, url);
+        }
+    }
+
+    /// `localhost` (на машине это `::1` и/или `127.0.0.1`) при слушающем IPv4-сокете даёт адрес, к
+    /// которому действительно можно подключиться, с тем же портом и путём.
+    #[tokio::test]
+    async fn localhost_resolves_to_a_connectable_url() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let url = reachable_url(&format!("opc.tcp://localhost:{port}/srv"), Duration::from_secs(1)).await;
+        assert!(
+            url == format!("opc.tcp://localhost:{port}/srv") || url == format!("opc.tcp://127.0.0.1:{port}/srv"),
+            "{url}"
+        );
+        let host_port = url.trim_start_matches("opc.tcp://").split('/').next().unwrap().to_string();
+        assert!(TcpStream::connect(host_port).await.is_ok(), "{url}");
     }
 
     #[test]
