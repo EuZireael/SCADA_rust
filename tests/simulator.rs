@@ -10,8 +10,9 @@ use std::time::Duration;
 
 use common::{OP_TIMEOUT, controller, sim_host, toggled, type_matches};
 use scada_gateway::modbus::{self, ModbusClient};
+use scada_gateway::model::OpcSecurity;
 use scada_gateway::model::{ControllerKind, Protocol, Quality, TagValue};
-use scada_gateway::opcua::{self, OpcConnection};
+use scada_gateway::opcua::{self, ConnectOptions, OpcConnection};
 use scada_gateway::pac::{self, PacConnection};
 
 const NEED_SIM: &str = "нужен симулятор: SIM_HOST=… cargo test -- --ignored";
@@ -184,4 +185,104 @@ async fn pac_write_applies_and_unknown_device_is_rejected() {
         0,
         "несуществующий прибор — код ошибки"
     );
+}
+
+// ---------------------------------------------------------- защита канала и пользователь --
+//
+// Симулятор для этих проверок запускают с SIM_OPCUA_USER и SIM_OPCUA_PASSWORD (CI делает это сам);
+// IT_OPCUA_USER / IT_OPCUA_PASSWORD — те же значения для тестов (по умолчанию operator / operator-pass).
+
+fn creds() -> (String, String) {
+    (
+        std::env::var("IT_OPCUA_USER").unwrap_or_else(|_| "operator".into()),
+        std::env::var("IT_OPCUA_PASSWORD").unwrap_or_else(|_| "operator-pass".into()),
+    )
+}
+
+fn secure_opts(security: &str, user: Option<(&str, &str)>, trust_all: bool, pki: &std::path::Path) -> ConnectOptions {
+    ConnectOptions {
+        security: OpcSecurity::parse(Some(security), user.map(|u| u.0), user.map(|u| u.1)).unwrap(),
+        pki_dir: pki.to_path_buf(),
+        trust_server_certs: trust_all,
+    }
+}
+
+fn fresh_pki(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("scada-it-pki-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
+}
+
+async fn read_first_node(conn: &OpcConnection) -> Quality {
+    let ctrl = controller(ControllerKind::OpcUa);
+    let tag = ctrl.tags.iter().find(|t| t.protocol == Protocol::OpcUa).expect("OPC UA-тег");
+    let values = conn.read(&[opcua::read_value_id(&tag.node_id).unwrap()]).await.unwrap();
+    opcua::reading(&values[0]).1
+}
+
+#[tokio::test]
+#[ignore = "нужен симулятор с SIM_OPCUA_USER/SIM_OPCUA_PASSWORD"]
+async fn secure_channel_with_user_reads_values() {
+    let ctrl = controller(ControllerKind::OpcUa);
+    let (user, pass) = creds();
+    for (security, name) in [("Basic256Sha256", "enc"), ("Basic256Sha256_Sign", "sign")] {
+        let opts = secure_opts(security, Some((&user, &pass)), true, &fresh_pki(name));
+        let conn = OpcConnection::connect_with(&ctrl.endpoint, OP_TIMEOUT, &opts)
+            .await
+            .unwrap_or_else(|e| panic!("{security}: {e:#}"));
+        assert_eq!(read_first_node(&conn).await, Quality::Good, "{security}");
+        conn.close().await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "нужен симулятор с SIM_OPCUA_USER/SIM_OPCUA_PASSWORD"]
+async fn wrong_password_and_anonymous_are_refused_on_the_secure_endpoint() {
+    let ctrl = controller(ControllerKind::OpcUa);
+    let (user, _) = creds();
+    let wrong = secure_opts("Basic256Sha256", Some((&user, "не тот пароль")), true, &fresh_pki("wrong"));
+    assert!(OpcConnection::connect_with(&ctrl.endpoint, OP_TIMEOUT, &wrong).await.is_err(), "неверный пароль принят");
+    let anonymous = secure_opts("Basic256Sha256", None, true, &fresh_pki("anon"));
+    assert!(
+        OpcConnection::connect_with(&ctrl.endpoint, OP_TIMEOUT, &anonymous).await.is_err(),
+        "анонимный вход принят на защищённой точке"
+    );
+}
+
+/// Защищённый канал без `GATEWAY_OPCUA_TRUST_SERVER_CERTS`: сертификат сервера, которого нет в `trusted/`, не
+/// принимается; после того как оператор положил его в `trusted/` (как делают в OPC UA), подключение проходит.
+#[tokio::test]
+#[ignore = "нужен симулятор с SIM_OPCUA_USER/SIM_OPCUA_PASSWORD"]
+async fn untrusted_server_certificate_is_rejected_until_the_operator_trusts_it() {
+    let ctrl = controller(ControllerKind::OpcUa);
+    let (user, pass) = creds();
+    let pki = fresh_pki("trust");
+    let opts = secure_opts("Basic256Sha256", Some((&user, &pass)), false, &pki);
+    assert!(
+        OpcConnection::connect_with(&ctrl.endpoint, OP_TIMEOUT, &opts).await.is_err(),
+        "неизвестный сертификат сервера принят"
+    );
+
+    // Первая попытка сложила сертификат сервера в rejected/ — оператор ПЕРЕНОСИТ его в trusted/ (пока файл
+    // лежит и в rejected/, сертификат считается отвергнутым).
+    let rejected: Vec<_> = std::fs::read_dir(pki.join("rejected")).expect("rejected/").flatten().collect();
+    assert!(!rejected.is_empty(), "отклонённый сертификат сервера не сохранён в {}/rejected", pki.display());
+    std::fs::create_dir_all(pki.join("trusted")).unwrap();
+    for cert in rejected {
+        std::fs::rename(cert.path(), pki.join("trusted").join(cert.file_name())).unwrap();
+    }
+    let conn = OpcConnection::connect_with(&ctrl.endpoint, OP_TIMEOUT, &opts).await.unwrap_or_else(|e| panic!("{e:#}"));
+    assert_eq!(read_first_node(&conn).await, Quality::Good);
+    conn.close().await;
+}
+
+#[tokio::test]
+#[ignore = "нужен симулятор с SIM_OPCUA_USER/SIM_OPCUA_PASSWORD"]
+async fn user_over_an_unprotected_channel_still_works_when_the_server_allows_it() {
+    let ctrl = controller(ControllerKind::OpcUa);
+    let (user, pass) = creds();
+    let opts = secure_opts("None", Some((&user, &pass)), true, &fresh_pki("none"));
+    let conn = OpcConnection::connect_with(&ctrl.endpoint, OP_TIMEOUT, &opts).await.unwrap_or_else(|e| panic!("{e:#}"));
+    assert_eq!(read_first_node(&conn).await, Quality::Good);
+    conn.close().await;
 }

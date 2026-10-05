@@ -13,7 +13,7 @@ use opcua::crypto::SecurityPolicy;
 use opcua::server::address_space::{ObjectBuilder, VariableBuilder};
 use opcua::server::diagnostics::NamespaceMetadata;
 use opcua::server::node_manager::memory::{SimpleNodeManager, simple_node_manager};
-use opcua::server::{Server, ServerBuilder, ServerHandle};
+use opcua::server::{Server, ServerBuilder, ServerHandle, ServerUserToken};
 use opcua::types::{DataTypeId, DataValue, MessageSecurityMode, NodeId, ObjectId, StatusCode, Variant};
 use tracing::info;
 
@@ -86,20 +86,48 @@ pub struct Pusher {
 }
 
 /// Собирает сервер с адресным пространством из тегов контроллера. Сервер надо запустить (`run`).
-pub fn build(plc: &Arc<Plc>, endpoint: &str) -> Result<(Server, Pusher)> {
+/// С `user` (логин, пароль) сервер дополнительно предлагает защищённые конечные точки
+/// (Basic256Sha256: Sign и SignAndEncrypt), доступные только этому пользователю, а на открытой точке
+/// принимает и его. Нужно для проверки защищённого подключения шлюза.
+pub fn build(plc: &Arc<Plc>, endpoint: &str, user: Option<(&str, &str)>) -> Result<(Server, Pusher)> {
     {
         let (host, port) = parse_endpoint(endpoint)?;
         let ns_uri = format!("http://{}", plc.id);
         let pki = std::env::temp_dir().join(format!("sim-pki-{}-{port}", std::process::id()));
-        let (server, handle) = ServerBuilder::new_anonymous(plc.name.clone())
+        let builder = ServerBuilder::new_anonymous(plc.name.clone())
             .application_uri(format!("urn:{}:simulator", plc.id))
             .product_uri("urn:scada-rust:simulator")
             .host(host)
             .port(port)
             .pki_dir(pki)
             .create_sample_keypair(true)
-            .trust_client_certs(true)
-            .add_endpoint("none", ("/", SecurityPolicy::None, MessageSecurityMode::None, &["ANONYMOUS"] as &[&str]))
+            .trust_client_certs(true);
+        let builder = match user {
+            None => builder.add_endpoint(
+                "none",
+                ("/", SecurityPolicy::None, MessageSecurityMode::None, &["ANONYMOUS"] as &[&str]),
+            ),
+            Some((name, pass)) => builder
+                .add_user_token("operator", ServerUserToken::user_pass(name, pass))
+                .add_endpoint(
+                    "none",
+                    ("/", SecurityPolicy::None, MessageSecurityMode::None, &["ANONYMOUS", "operator"] as &[&str]),
+                )
+                .add_endpoint(
+                    "basic256sha256_sign",
+                    ("/", SecurityPolicy::Basic256Sha256, MessageSecurityMode::Sign, &["operator"] as &[&str]),
+                )
+                .add_endpoint(
+                    "basic256sha256_signandencrypt",
+                    (
+                        "/",
+                        SecurityPolicy::Basic256Sha256,
+                        MessageSecurityMode::SignAndEncrypt,
+                        &["operator"] as &[&str],
+                    ),
+                ),
+        };
+        let (server, handle) = builder
             .with_node_manager(simple_node_manager(
                 NamespaceMetadata { namespace_uri: ns_uri.clone(), ..Default::default() },
                 "sim",
