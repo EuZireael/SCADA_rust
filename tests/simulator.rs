@@ -85,10 +85,26 @@ async fn opcua_write_applies_and_readonly_is_rejected() {
     let target = toggled(&before);
     let status = conn.write(node.clone(), opcua::to_variant(&rw.data_type, &target).unwrap()).await.unwrap();
     assert!(status.is_good(), "запись в RW-узел: {status}");
-    assert_eq!(read().await, target, "узел должен вернуть записанное значение");
+    // Симулятор кладёт записанное в узел следующим шагом цикла (миллисекунды, на медленной машине — дольше), а
+    // не до ответа на запись: ждём значение, а не читаем сразу.
+    let settled = |want: TagValue| {
+        let read = &read;
+        async move {
+            let mut last = None;
+            for _ in 0..40 {
+                last = Some(read().await);
+                if last.as_ref() == Some(&want) {
+                    return last;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            last
+        }
+    };
+    assert_eq!(settled(target.clone()).await, Some(target.clone()), "узел должен вернуть записанное значение");
     let status = conn.write(node, opcua::to_variant(&rw.data_type, &before).unwrap()).await.unwrap();
     assert!(status.is_good());
-    assert_eq!(read().await, before);
+    assert_eq!(settled(before.clone()).await, Some(before.clone()));
 
     // Показание датчика: узел только на чтение — сервер отклоняет запись.
     let ro = ctrl
