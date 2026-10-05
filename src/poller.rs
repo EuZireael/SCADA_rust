@@ -16,7 +16,7 @@ use crate::app::{App, ControllerHandle};
 use crate::events::Event;
 use crate::modbus::{self, ModbusClient};
 use crate::model::{ControllerKind, Protocol, Quality, Reading, Tag, Timestamp};
-use crate::opcua::{self, OpcConnection};
+use crate::opcua::{self, ConnectOptions, OpcConnection};
 use crate::pac::{self, PacConnection};
 use crate::telemetry::{Processor, all_bad};
 
@@ -97,10 +97,35 @@ async fn run_opcua(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancell
         }
     }
     let mut processor = Processor::new(app.clone(), handle.clone());
+    let opts = ConnectOptions::for_controller(&handle.ctrl.opc_security, &gw);
+    {
+        let sec = &opts.security;
+        if sec.is_secure() || sec.username.is_some() {
+            info!(
+                "{}: OPC UA {:?}/{:?}{}",
+                handle.ctrl.name,
+                sec.policy,
+                sec.mode,
+                sec.username.as_ref().map(|u| format!(", пользователь {u}")).unwrap_or_default()
+            );
+            if sec.is_secure() && opts.trust_server_certs {
+                warn!(
+                    "{}: GATEWAY_OPCUA_TRUST_SERVER_CERTS — сертификат сервера не проверяется, защищённый канал не защищает от подмены сервера",
+                    handle.ctrl.name
+                );
+            }
+            if !sec.is_secure() && sec.username.is_some() {
+                warn!(
+                    "{}: логин и пароль OPC UA идут по каналу без защиты (security: None) — задайте политику",
+                    handle.ctrl.name
+                );
+            }
+        }
+    }
     let mut fails: u32 = 0;
 
     while !cancel.is_cancelled() {
-        let conn = match OpcConnection::connect(&handle.ctrl.endpoint, gw.opcua_op_timeout).await {
+        let conn = match OpcConnection::connect_with(&handle.ctrl.endpoint, gw.opcua_op_timeout, &opts).await {
             Ok(c) => Arc::new(c),
             Err(e) => {
                 fails += 1;

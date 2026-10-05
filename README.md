@@ -99,6 +99,7 @@ SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094 \
 | `KAFKA_SSL_CA_LOCATION` / `_CERTIFICATE_LOCATION` / `_KEY_LOCATION` / `_KEY_PASSWORD` | — | сертификаты (в том числе клиентский для mTLS) |
 | `KAFKA_CLIENT_<СВОЙСТВО>` | — | любое свойство librdkafka: `KAFKA_CLIENT_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM=none` → `ssl.endpoint.identification.algorithm`; перекрывает именованные |
 | `SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL` / `_SASL_MECHANISM` / `_SASL_JAAS_CONFIG` | — | как у Java-шлюза (из JAAS берутся `username` и `password`) |
+| `GATEWAY_OPCUA_PKI_DIR` / `GATEWAY_OPCUA_TRUST_SERVER_CERTS` | tmp / `false` | сертификаты защищённого OPC UA (`security:`, `username:`, `password:` в `controllers.yaml`); см. `docs/OPERATIONS.md` |
 | `GATEWAY_API_TOKEN` / `GATEWAY_API_TOKEN_FILE` | — | токен REST: `/api/*` требует `Authorization: Bearer <токен>` (без токена — открыт, как раньше; `/actuator/*` открыт всегда) |
 | `GATEWAY_HTTP_BIND` | `0.0.0.0` | адрес HTTP (`127.0.0.1` — только локально) |
 | `GATEWAY_HA_YIELD_AFTER_MS` | `30000` | «слепой» активный (связь потеряна со всеми контроллерами) отдаёт лидерство партнёру; `0` — выключено |
@@ -170,7 +171,6 @@ SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094 \
 - JVM-метрики `/actuator/metrics/*` Java-шлюза; вместо них — метрики Prometheus (`process_*`,
   `scada_poll_seconds`, `scada_process_seconds`…), нагрузочный стенд — `loadtest/`.
 - Kerberos (SASL GSSAPI) для Kafka: нужна сборка librdkafka с libsasl2.
-- Политики безопасности OPC UA кроме None (у Java на деле тоже только None).
 
 ## Проверено
 

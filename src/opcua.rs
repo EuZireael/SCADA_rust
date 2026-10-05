@@ -14,6 +14,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::Utc;
 use opcua::client::{Client, ClientBuilder, IdentityToken, Session};
+use opcua::crypto::SecurityPolicy;
 use opcua::types::{
     AttributeId, DataValue, EndpointDescription, MessageSecurityMode, NodeId, NumericRange, ReadValueId, StatusCode,
     TimestampsToReturn, UAString, UserTokenPolicy, Variant, WriteValue,
@@ -23,7 +24,7 @@ use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tracing::info;
 
-use crate::model::{self, Quality, TagValue, Timestamp};
+use crate::model::{self, OpcMode, OpcPolicy, OpcSecurity, Quality, TagValue, Timestamp};
 
 /// Узлов в одном запросе чтения.
 pub const READ_CHUNK: usize = 500;
@@ -81,19 +82,75 @@ async fn pick_address(addrs: &[SocketAddr], probe_timeout: Duration) -> Option<S
     None
 }
 
+/// Как подключаться к одному OPC UA-серверу: защита канала, пользователь, хранилище сертификатов.
+#[derive(Debug, Clone)]
+pub struct ConnectOptions {
+    pub security: OpcSecurity,
+    pub pki_dir: std::path::PathBuf,
+    /// Доверять любому сертификату сервера. Для канала без защиты не имеет значения.
+    pub trust_server_certs: bool,
+}
+
+impl ConnectOptions {
+    /// Канал без защиты, анонимно (стенд, тесты).
+    pub fn insecure() -> Self {
+        ConnectOptions {
+            security: OpcSecurity::default(),
+            pki_dir: std::env::temp_dir().join("scada-gateway-pki"),
+            trust_server_certs: true,
+        }
+    }
+
+    pub fn for_controller(security: &OpcSecurity, settings: &crate::config::GatewaySettings) -> Self {
+        ConnectOptions {
+            security: security.clone(),
+            pki_dir: settings.opcua_pki_dir.clone(),
+            trust_server_certs: settings.opcua_trust_server_certs,
+        }
+    }
+}
+
+fn security_policy(p: OpcPolicy) -> SecurityPolicy {
+    match p {
+        OpcPolicy::None => SecurityPolicy::None,
+        OpcPolicy::Basic128Rsa15 => SecurityPolicy::Basic128Rsa15,
+        OpcPolicy::Basic256 => SecurityPolicy::Basic256,
+        OpcPolicy::Basic256Sha256 => SecurityPolicy::Basic256Sha256,
+        OpcPolicy::Aes128Sha256RsaOaep => SecurityPolicy::Aes128Sha256RsaOaep,
+        OpcPolicy::Aes256Sha256RsaPss => SecurityPolicy::Aes256Sha256RsaPss,
+    }
+}
+
+fn message_mode(m: OpcMode) -> MessageSecurityMode {
+    match m {
+        OpcMode::None => MessageSecurityMode::None,
+        OpcMode::Sign => MessageSecurityMode::Sign,
+        OpcMode::SignAndEncrypt => MessageSecurityMode::SignAndEncrypt,
+    }
+}
+
 impl OpcConnection {
+    /// Без защиты и анонимно — как раньше (стенд, тесты).
     pub async fn connect(url: &str, op_timeout: Duration) -> Result<Self> {
+        Self::connect_with(url, op_timeout, &ConnectOptions::insecure()).await
+    }
+
+    pub async fn connect_with(url: &str, op_timeout: Duration, opts: &ConnectOptions) -> Result<Self> {
         let url = reachable_url(url, op_timeout.min(PROBE_TIMEOUT)).await;
         let url = url.as_str();
+        let secure = opts.security.is_secure();
         let mut client = ClientBuilder::new()
             .application_name("SCADA Gateway")
             .application_uri("urn:scada:gateway")
             .product_uri("urn:scada:gateway")
-            .pki_dir(std::env::temp_dir().join("scada-gateway-pki"))
+            .pki_dir(&opts.pki_dir)
             // Самоподписанный сертификат клиента (создаётся один раз в pki_dir): для политики
-            // None он не нужен, но без него клиент при каждом подключении пишет ошибки в лог.
+            // None он не нужен, но без него клиент при каждом подключении пишет ошибки в лог. При
+            // защищённом канале сервер должен ему доверять (у сервера — своё хранилище).
             .create_sample_keypair(true)
-            .trust_server_certs(true)
+            // Сертификат сервера: без защиты канала проверять нечего; с защитой — только из `trusted/`,
+            // если не включено GATEWAY_OPCUA_TRUST_SERVER_CERTS.
+            .trust_server_certs(opts.trust_server_certs || !secure)
             // Переподключением управляет опрос шлюза: оборвалась сессия — событие DISCONNECTED
             // и новая попытка по своему расписанию.
             .session_retry_limit(0)
@@ -101,11 +158,33 @@ impl OpcConnection {
             .max_array_length(100_000)
             .client()
             .map_err(|e| anyhow!("конфигурация OPC UA-клиента: {e:?}"))?;
-        let endpoint: EndpointDescription =
-            (url, "None", MessageSecurityMode::None, UserTokenPolicy::anonymous()).into();
-        let (session, event_loop) = client
-            .connect_to_endpoint_directly(endpoint, IdentityToken::Anonymous)
-            .map_err(|e| anyhow!("OPC UA {url}: {e}"))?;
+        let identity = match (&opts.security.username, &opts.security.password) {
+            (Some(user), Some(pass)) => IdentityToken::new_user_name(user.clone(), pass.clone()),
+            _ => IdentityToken::Anonymous,
+        };
+        let (session, event_loop) = if secure || opts.security.username.is_some() {
+            // Защищённый канал шифрует первое сообщение открытым ключом сервера, а политика токена «логин/пароль»
+            // у сервера своя (её идентификатор подставить нельзя), поэтому конечные точки запрашиваем у сервера и
+            // берём подходящую по политике и режиму.
+            let endpoint: EndpointDescription =
+                (url, security_policy(opts.security.policy).to_str(), message_mode(opts.security.mode)).into();
+            timeout(op_timeout, client.connect_to_matching_endpoint(endpoint, identity))
+                .await
+                .with_context(|| {
+                    format!("OPC UA {url}: таймаут {} мс при запросе конечных точек", op_timeout.as_millis())
+                })?
+                .map_err(|e| {
+                    anyhow!(
+                        "OPC UA {url}: нет конечной точки {:?}/{:?} или к ней не подключиться: {e}",
+                        opts.security.policy,
+                        opts.security.mode
+                    )
+                })?
+        } else {
+            let endpoint: EndpointDescription =
+                (url, "None", MessageSecurityMode::None, UserTokenPolicy::anonymous()).into();
+            client.connect_to_endpoint_directly(endpoint, identity).map_err(|e| anyhow!("OPC UA {url}: {e}"))?
+        };
         let mut event_loop = event_loop.spawn();
 
         tokio::select! {

@@ -66,6 +66,30 @@ docker run -d --name scada-gateway -p 8888:8888 \
 `pg_advisory_xact_lock` — два экземпляра пары не гоняются). `GATEWAY_PERSIST_TELEMETRY` (`false`) —
 писать историю в таблицу `telemetry`; `GATEWAY_HISTORY_*` — фильтр истории, `GATEWAY_TELEMETRY_RETENTION_HOURS` (72) — срок.
 
+### Безопасность OPC UA
+
+В `controllers.yaml` у контроллера (только OPC UA):
+
+```yaml
+- name: "Площадка-1"
+  endpoint: "opc.tcp://${PLC_HOST}:4840"
+  security: Basic256Sha256        # None (по умолчанию) | Basic256Sha256 | Aes128_Sha256_RsaOaep | Aes256_Sha256_RsaPss | Basic256 | Basic128Rsa15
+                                  # режим — суффикс _Sign или _SignAndEncrypt (по умолчанию SignAndEncrypt)
+  username: "gateway"
+  password: "${PLC_PASSWORD}"     # пароль — из окружения, в файл и в журнал он не попадает
+```
+
+* Ошибка в `security`, логин без пароля, `security`/`username` у Modbus и PAC — **шлюз не стартует** и говорит почему
+  (молча работать без защиты он не будет). У Modbus и PAC защиты на уровне протокола нет.
+* Логин и пароль на канале `None` идут открытым текстом — в журнале предупреждение; задавайте политику.
+* **Сертификаты.** Шлюз создаёт свой самоподписанный сертификат в `GATEWAY_OPCUA_PKI_DIR` (`/app/pki` в образе — том;
+  в нём `own/`, `private/`, `trusted/`, `rejected/`) и **не доверяет** сертификату сервера, пока его нет в `trusted/`.
+  Порядок, как принято в OPC UA: первое подключение кладёт сертификат сервера в `rejected/` и соединение
+  не устанавливается → перенесите (не копируйте) файл из `rejected/` в `trusted/` → шлюз подключится. Сертификат шлюза
+  (`own/cert.der`) в свою очередь надо внести в доверенные на стороне ПЛК.
+* `GATEWAY_OPCUA_TRUST_SERVER_CERTS=true` — доверять любому сертификату сервера. Только для стенда: без проверки сервера
+  защищённый канал не защищает от подмены сервера (в журнале предупреждение).
+
 ### Опрос и связь
 
 `GATEWAY_OPCUA_OP_TIMEOUT_MS` (5000), `GATEWAY_MODBUS_OP_TIMEOUT_MS` (3000), `GATEWAY_PAC_OP_TIMEOUT_MS` (3000),

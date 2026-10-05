@@ -122,7 +122,7 @@ jobs:
         run: |
           cargo build --release --locked --manifest-path simulator/Cargo.toml
           cd simulator
-          OPCUA_ENDPOINT=opc.tcp://127.0.0.1:4840 nohup ./target/release/simulator config/replay_config.yaml > "$RUNNER_TEMP/simulator.log" 2>&1 &
+          SIM_OPCUA_USER=operator SIM_OPCUA_PASSWORD=operator-pass OPCUA_ENDPOINT=opc.tcp://127.0.0.1:4840 nohup ./target/release/simulator config/replay_config.yaml > "$RUNNER_TEMP/simulator.log" 2>&1 &
           for port in 4840 5020 10000; do
             for _ in $(seq 60); do (echo > /dev/tcp/127.0.0.1/$port) 2>/dev/null && break; sleep 1; done
           done

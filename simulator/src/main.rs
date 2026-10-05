@@ -6,7 +6,8 @@
 //!   simulator probe-pac [host] [port]         снимок любого PAC (симулятор, прошивка ptusa): по умолчанию localhost:10000
 //!
 //! Окружение: OPCUA_ENDPOINT (напр. opc.tcp://simulator:4840 — адрес привязки и анонса вместо
-//! конфигурации), MODBUS_PORT, PAC_PORT, RUST_LOG.
+//! конфигурации), MODBUS_PORT, PAC_PORT, RUST_LOG; SIM_OPCUA_USER и SIM_OPCUA_PASSWORD — включить
+//! защищённые конечные точки (Basic256Sha256) для этого пользователя.
 
 mod config;
 mod modbus;
@@ -138,7 +139,13 @@ async fn main() -> Result<()> {
 
     let endpoint =
         std::env::var("OPCUA_ENDPOINT").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| cfg.plc.endpoint.clone());
-    let (opcua_server, pusher) = opcua::build(&plc, &endpoint)?;
+    // Защищённые конечные точки для проверки шлюза: SIM_OPCUA_USER / SIM_OPCUA_PASSWORD.
+    let user = (std::env::var("SIM_OPCUA_USER").ok().filter(|v| !v.is_empty()))
+        .zip(std::env::var("SIM_OPCUA_PASSWORD").ok().filter(|v| !v.is_empty()));
+    let (opcua_server, pusher) = opcua::build(&plc, &endpoint, user.as_ref().map(|(u, p)| (u.as_str(), p.as_str())))?;
+    if user.is_some() {
+        info!("OPC UA: включены защищённые конечные точки Basic256Sha256 (пользователь из SIM_OPCUA_USER)");
+    }
     let server_task = tokio::spawn(async move {
         if let Err(e) = opcua_server.run().await {
             warn!("OPC UA-сервер остановлен: {e}");

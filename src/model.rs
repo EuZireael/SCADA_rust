@@ -111,6 +111,96 @@ pub fn classify(protocol: &str, node_id: &str, modbus_address: Option<i32>) -> P
     }
 }
 
+/// Политика безопасности канала OPC UA (`security:` в controllers.yaml).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OpcPolicy {
+    #[default]
+    None,
+    Basic128Rsa15,
+    Basic256,
+    Basic256Sha256,
+    Aes128Sha256RsaOaep,
+    Aes256Sha256RsaPss,
+}
+
+/// Режим защиты сообщений OPC UA.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OpcMode {
+    #[default]
+    None,
+    Sign,
+    SignAndEncrypt,
+}
+
+/// Защита соединения с OPC UA-контроллером: политика и режим канала, логин и пароль пользователя.
+/// Пароль не печатается ни в `Debug`, ни в журнале.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct OpcSecurity {
+    pub policy: OpcPolicy,
+    pub mode: OpcMode,
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
+impl std::fmt::Debug for OpcSecurity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpcSecurity")
+            .field("policy", &self.policy)
+            .field("mode", &self.mode)
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| "***"))
+            .finish()
+    }
+}
+
+impl OpcSecurity {
+    /// Канал защищён (подпись и/или шифрование).
+    pub fn is_secure(&self) -> bool {
+        self.policy != OpcPolicy::None
+    }
+
+    /// Разбор `security:` (`None`, `Basic256Sha256`, `Basic256Sha256_Sign`, `Aes256_Sha256_RsaPss/SignAndEncrypt`…):
+    /// политика, затем необязательный режим `Sign` / `SignAndEncrypt` (по умолчанию — SignAndEncrypt).
+    /// Регистр, `_`, `-`, `/` и пробелы значения не имеют. Пара логин/пароль — только вместе.
+    pub fn parse(security: Option<&str>, username: Option<&str>, password: Option<&str>) -> Result<Self, String> {
+        let username = username.filter(|u| !u.is_empty());
+        let password = password.filter(|p| !p.is_empty());
+        if username.is_some() != password.is_some() {
+            return Err("username и password задаются вместе".into());
+        }
+        let raw = security.unwrap_or("").trim();
+        let norm: String =
+            raw.chars().filter(|c| !matches!(c, '_' | '-' | '/' | ' ')).collect::<String>().to_ascii_lowercase();
+        let (policy_part, mode) = if let Some(p) = norm.strip_suffix("signandencrypt") {
+            (p, Some(OpcMode::SignAndEncrypt))
+        } else if let Some(p) = norm.strip_suffix("sign") {
+            (p, Some(OpcMode::Sign))
+        } else {
+            (norm.as_str(), None)
+        };
+        let policy = match policy_part {
+            "" | "none" => OpcPolicy::None,
+            "basic128rsa15" => OpcPolicy::Basic128Rsa15,
+            "basic256" => OpcPolicy::Basic256,
+            "basic256sha256" => OpcPolicy::Basic256Sha256,
+            "aes128sha256rsaoaep" => OpcPolicy::Aes128Sha256RsaOaep,
+            "aes256sha256rsapss" => OpcPolicy::Aes256Sha256RsaPss,
+            _ => {
+                return Err(format!(
+                    "security: {raw:?} — ожидается None или политика (Basic256Sha256, Aes128_Sha256_RsaOaep, Aes256_Sha256_RsaPss, \
+                     Basic256, Basic128Rsa15) с необязательным режимом _Sign / _SignAndEncrypt"
+                ));
+            }
+        };
+        let mode = match (policy, mode) {
+            (OpcPolicy::None, None) => OpcMode::None,
+            (OpcPolicy::None, Some(_)) => return Err(format!("security: {raw:?} — у политики None нет режима")),
+            (_, mode) => mode.unwrap_or(OpcMode::SignAndEncrypt),
+        };
+        Ok(OpcSecurity { policy, mode, username: username.map(str::to_string), password: password.map(str::to_string) })
+    }
+}
+
 /// Контроллер со своими тегами.
 #[derive(Debug, Clone)]
 pub struct Controller {
@@ -122,6 +212,8 @@ pub struct Controller {
     pub enabled: bool,
     /// Только включённые теги.
     pub tags: Vec<Arc<Tag>>,
+    /// Защита соединения (только OPC UA).
+    pub opc_security: OpcSecurity,
 }
 
 impl Controller {
@@ -132,6 +224,7 @@ impl Controller {
             endpoint: cfg.endpoint.clone(),
             kind: ControllerKind::from_endpoint(&cfg.endpoint)?,
             enabled: cfg.enabled,
+            opc_security: cfg.opc_security().unwrap_or_default(),
             tags: cfg
                 .tags
                 .iter()
@@ -300,6 +393,40 @@ mod tests {
         assert_eq!(classify("modbus", "modbus:40001", Some(40001)), Protocol::Modbus);
         assert_eq!(classify("opcua", "ns=2;s=6", None), Protocol::OpcUa);
         assert_eq!(classify("", "", Some(40005)), Protocol::Modbus);
+    }
+
+    #[test]
+    fn security_is_parsed_flexibly() {
+        let p = |s: &str| OpcSecurity::parse(Some(s), None, None);
+        assert_eq!(p("None").unwrap(), OpcSecurity::default());
+        assert_eq!(OpcSecurity::parse(None, None, None).unwrap(), OpcSecurity::default());
+        let s = p("Basic256Sha256").unwrap();
+        assert_eq!(
+            (s.policy, s.mode),
+            (OpcPolicy::Basic256Sha256, OpcMode::SignAndEncrypt),
+            "режим по умолчанию — шифрование"
+        );
+        assert_eq!(p("basic256sha256_sign").unwrap().mode, OpcMode::Sign);
+        assert_eq!(p("Aes256_Sha256_RsaPss/SignAndEncrypt").unwrap().policy, OpcPolicy::Aes256Sha256RsaPss);
+        assert_eq!(p("Aes128-Sha256-RsaOaep Sign").unwrap().policy, OpcPolicy::Aes128Sha256RsaOaep);
+        assert!(p("Basic999").is_err(), "неизвестная политика — ошибка, а не молчаливое «без защиты»");
+        assert!(p("None_Sign").is_err());
+        assert!(p("Sign").is_err());
+    }
+
+    #[test]
+    fn credentials_come_in_pairs_and_stay_out_of_debug() {
+        assert!(OpcSecurity::parse(None, Some("u"), None).is_err());
+        assert!(OpcSecurity::parse(None, None, Some("p")).is_err());
+        let s = OpcSecurity::parse(Some("Basic256Sha256"), Some("operator"), Some("s3cret!")).unwrap();
+        assert!(s.is_secure());
+        let shown = format!("{s:?}");
+        assert!(shown.contains("operator") && !shown.contains("s3cret"), "{shown}");
+        assert_eq!(
+            OpcSecurity::parse(None, Some(""), Some("")).unwrap().username,
+            None,
+            "пустые логин и пароль — не заданы"
+        );
     }
 
     #[test]

@@ -32,7 +32,12 @@ COPY --from=build /usr/local/bin/scada-gateway /app/scada-gateway
 # Пользовательские Lua-скрипты (gateway.scripts.dir=scripts → /app/scripts): в образе — примеры без привязок;
 # на стенде папка монтируется томом, правки подхватываются без перезапуска.
 COPY --chown=scada:scada config/scripts /app/scripts
-ENV CONTROLLERS_YAML=/app/config/controllers.yaml
+# Хранилище сертификатов OPC UA (свой сертификат шлюза и trusted/ с сертификатами серверов): том, чтобы
+# переживало пересоздание контейнера.
+RUN mkdir -p /app/pki && chown scada:scada /app/pki
+VOLUME /app/pki
+ENV CONTROLLERS_YAML=/app/config/controllers.yaml \
+    GATEWAY_OPCUA_PKI_DIR=/app/pki
 EXPOSE 8888
 USER scada
 HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=6 CMD ["/app/scada-gateway", "healthcheck"]
