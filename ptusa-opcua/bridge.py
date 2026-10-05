@@ -46,6 +46,43 @@ from asyncua import Server, ua
 log = logging.getLogger("ptusa-opcua")
 
 NAMESPACE_URI = "urn:savushkin:ptusa"
+
+# Снимок присылает «прошивка» — то есть любой, кто ответит на порту PAC, поэтому Lua-стейт — песочница.
+LUA_MEMORY_LIMIT = 64 * 1024 * 1024
+LUA_TIME_BUDGET = 1.0          # секунд на разбор одного снимка (в норме — миллисекунды)
+MAX_INFLATED_BYTES = 8 * 1024 * 1024   # потолок распакованного кадра (защита от zlib-бомбы)
+
+_LUA_SANDBOX = """
+local clock, sethook, error = os.clock, debug.sethook, error
+local deadline = math.huge
+sethook(function() if clock() > deadline then error('time limit exceeded') end end, '', 10000)
+local function arm(seconds) deadline = clock() + seconds end
+for _, name in ipairs{'python', 'os', 'io', 'debug', 'package', 'require', 'load', 'loadstring', 'loadfile',
+                      'dofile', 'collectgarbage', 'coroutine', 'getfenv', 'setfenv', 'newproxy', 'module'} do
+  _G[name] = nil
+end
+string.dump = nil
+return arm
+"""
+
+
+def sandboxed_lua():
+    """Lua-стейт для чужого скрипта: без доступа к Python (`python.eval`, `python.builtins` у lupa
+    включены по умолчанию — это исполнение произвольного кода), без os/io/debug/load/байткода,
+    с потолком памяти и времени. Возвращает (стейт, arm): `arm(секунды)` включает отсчёт времени
+    перед исполнением скрипта; сам отсчёт скрипту недоступен."""
+    lua = lupa.LuaRuntime(unpack_returned_tuples=True, register_eval=False, register_builtins=False,
+                          max_memory=LUA_MEMORY_LIMIT)
+    return lua, lua.execute(_LUA_SANDBOX)
+
+
+def inflate(body: bytes, limit: int = MAX_INFLATED_BYTES) -> bytes:
+    """zlib-распаковка с потолком размера: маленькое тело не должно раздуваться в гигабайты."""
+    d = zlib.decompressobj()
+    out = d.decompress(body, limit)
+    if d.unconsumed_tail:
+        raise ConnectionError(f"PAC: ответ распаковывается больше чем в {limit} байт")
+    return out
 BANNER = b"PAC accept"
 STATUS_ERROR = 7
 CMD_GET_INFO_ON_CONNECT = 10
@@ -171,7 +208,7 @@ class PacClient:
         body = await asyncio.wait_for(self.reader.readexactly((hdr[3] << 8) | hdr[4]), self.timeout)
         if hdr[0] != ord("s") or hdr[1] == STATUS_ERROR:
             raise ConnectionError(f"PAC: ответ {hdr!r} на команду {cmd}")
-        return zlib.decompress(body) if body else b""
+        return inflate(body) if body else b""
 
     async def snapshot(self) -> str:
         async with self.lock:
@@ -191,7 +228,7 @@ class Bridge:
         self.by_nodeid: dict[ua.NodeId, Channel] = {}
         self.pac = pac
         self.poll = poll_ms / 1000
-        self.lua = lupa.LuaRuntime(unpack_returned_tuples=True)
+        self.lua, self._arm = sandboxed_lua()
         self.server: Optional[Server] = None
         self.ns = 0
         self.stats = {"polls": 0, "commands": 0, "rejected": 0}
@@ -292,6 +329,7 @@ class Bridge:
     async def poll_once(self):
         text = await self.pac.snapshot()
         ts = datetime.now(timezone.utc)
+        self._arm(LUA_TIME_BUDGET)
         self.lua.execute(text)
         t = self.lua.globals().t
         missing = 0
