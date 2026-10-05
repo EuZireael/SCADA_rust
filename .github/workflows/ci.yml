@@ -129,6 +129,11 @@ jobs:
           for _ in $(seq 60); do (echo > /dev/tcp/127.0.0.1/9092) 2>/dev/null && break; sleep 1; done
           tail -3 "$RUNNER_TEMP/simulator.log"
 
+      - name: Правила записи PAC соответствуют конфигурации (simulator conformance)
+        run: |
+          cd simulator
+          ./target/release/simulator conformance 127.0.0.1 10000 config/replay_config.yaml
+
       - name: Integration tests
         env:
           SIM_HOST: 127.0.0.1

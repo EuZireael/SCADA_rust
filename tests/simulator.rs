@@ -286,3 +286,55 @@ async fn user_over_an_unprotected_channel_still_works_when_the_server_allows_it(
     assert_eq!(read_first_node(&conn).await, Quality::Good);
     conn.close().await;
 }
+
+/// Условная логика прошивки (снята с эмулятора мойки): главный клапан линии `LINE1V0` в автоматическом режиме
+/// команду на открытие принимает (код 0 — для шлюза это `APPLIED`), но остаётся закрытым; в ручном режиме (`M=1`)
+/// открывается и держит; вернули автоматику — закрывается. Обычный клапан держит команду в любом режиме.
+#[tokio::test]
+#[ignore = "нужен симулятор: SIM_HOST=… cargo test -- --ignored"]
+async fn pac_program_owned_valve_accepts_the_command_but_opens_only_in_manual_mode() {
+    let ctrl = controller(ControllerKind::Pac);
+    let (host, port) = pac::endpoint(&ctrl.endpoint);
+    let mut conn = PacConnection::connect(&host, port, OP_TIMEOUT).await.expect(NEED_SIM);
+    let (on, off) = (TagValue::Int(1), TagValue::Int(0));
+
+    async fn state(conn: &mut PacConnection, device: &str) -> Option<TagValue> {
+        // Снимок симулятор обновляет раз в update_rate (~0,5 с).
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        conn.poll_states().await.unwrap();
+        conn.read_value(device, "ST", "INT32")
+    }
+
+    // Значение, которое считает программа (у симулятора — архив): его запись в автоматическом режиме не меняет.
+    assert_eq!(conn.exec_command("LINE1V0", "M", &off).await.unwrap(), 0);
+    let program = state(&mut conn, "LINE1V0").await.expect("LINE1V0.ST в снимке");
+    let opposite = toggled(&program);
+    assert_eq!(conn.exec_command("LINE1V0", "ST", &opposite).await.unwrap(), 0, "команда принята");
+    assert_eq!(
+        state(&mut conn, "LINE1V0").await,
+        Some(program.clone()),
+        "в автоматическом режиме значение осталось за программой"
+    );
+
+    assert_eq!(conn.exec_command("LINE1V0", "M", &on).await.unwrap(), 0);
+    assert_eq!(conn.exec_command("LINE1V0", "ST", &opposite).await.unwrap(), 0);
+    assert_eq!(
+        state(&mut conn, "LINE1V0").await,
+        Some(opposite.clone()),
+        "в ручном режиме команда действует и держится"
+    );
+
+    assert_eq!(conn.exec_command("LINE1V0", "M", &off).await.unwrap(), 0);
+    assert_eq!(state(&mut conn, "LINE1V0").await, Some(program), "вернули автоматику — значение снова за программой");
+
+    // Обычный клапан: команда держится без ручного режима.
+    conn.poll_states().await.unwrap();
+    if conn.read_value("LINE1V1", "ST", "INT32").is_some() {
+        assert_eq!(conn.exec_command("LINE1V1", "ST", &on).await.unwrap(), 0);
+        assert_eq!(state(&mut conn, "LINE1V1").await, Some(on.clone()));
+        assert_eq!(conn.exec_command("LINE1V1", "ST", &off).await.unwrap(), 0);
+    }
+
+    // Неизвестное поле известного прибора прошивка принимает (код 0), значение не меняется; не число — код 1.
+    assert_eq!(conn.exec_command("LINE1V0", "NO_SUCH_FIELD", &on).await.unwrap(), 0);
+}

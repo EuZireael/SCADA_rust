@@ -101,8 +101,26 @@ pub struct Tag {
     pub spec: ReplaySpec,
     pub replay_format: Option<String>,
     pub value: Value,
+    /// Значение, которое считает программа ПЛК без участия оператора (`initial:` для тегов без архива).
+    pub base: Value,
     /// Оператор записал значение — архив тег больше не трогает.
     pub operator_override: bool,
+    /// Запись принимается, но не меняет значение (его считает программа ПЛК).
+    pub write_ignored: bool,
+    /// Запись действует, только если поле `(device, field)` равно значению (см. `write_requires` в конфигурации).
+    pub write_requires: Option<Requires>,
+    /// Прошивка хранит поле целым.
+    pub write_int: bool,
+    /// Состояние: записанное целое, отличное от нуля, — 1.
+    pub write_state: bool,
+}
+
+/// Условие действия записи.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Requires {
+    pub device: String,
+    pub field: String,
+    pub equals: f64,
 }
 
 impl Tag {
@@ -130,6 +148,21 @@ impl Tag {
         {
             bail!("тег {}: generator={g:?} не поддерживается (только replay)", cfg.name);
         }
+        let write_ignored = match cfg.write.as_deref() {
+            None | Some("hold") => false,
+            Some("ignore") => true,
+            Some(other) => bail!("тег {}: write={other:?} — ожидается hold или ignore", cfg.name),
+        };
+        let write_requires = cfg.write_requires.as_ref().map(|r| Requires {
+            device: r.device.clone().or_else(|| cfg.device.clone()).unwrap_or_default(),
+            field: r.field.clone(),
+            equals: r.equals,
+        });
+        if let Some(r) = &write_requires
+            && r.device.is_empty()
+        {
+            bail!("тег {}: у write_requires нет прибора (задайте device у тега или у условия)", cfg.name);
+        }
         Ok(Tag {
             name: cfg.name.clone(),
             address: cfg.address(),
@@ -146,17 +179,34 @@ impl Tag {
             spec: cfg.replay_spec()?,
             replay_format: cfg.replay_format.clone(),
             value: cfg.initial_value(data_type),
+            base: cfg.initial_value(data_type),
             operator_override: false,
+            write_ignored,
+            write_requires,
+            write_int: cfg.write_int,
+            write_state: cfg.write_state,
         })
     }
 
-    /// Запись оператора (шлюз): только RW-теги. false — тег не RW или значение не приводится к типу.
+    /// Записанное значение в виде, в котором его хранит прошивка: целое для `write_int`, 0/1 для `write_state`.
+    /// None — значение не приводится к типу тега (в прошивке это ошибка Lua, команда получает код 1).
+    pub fn shape(&self, value: &Value) -> Option<Value> {
+        let converted = self.data_type.convert(value)?;
+        let Some(n) = converted.as_f64().filter(|_| self.write_int || self.write_state) else { return Some(converted) };
+        let n = n.trunc();
+        let n = if self.write_state { f64::from(u8::from(n != 0.0)) } else { n };
+        self.data_type.convert(&Value::Float(n))
+    }
+
+    /// Запись оператора без условий `write`/`write_requires` (их проверяет [`crate::plc::Plc`], у которого есть
+    /// остальные поля прибора): только RW-теги. false — тег не RW или значение не приводится к типу.
+    #[cfg(test)]
     pub fn set_operator(&mut self, value: &Value) -> bool {
         if !self.writable {
             return false;
         }
-        let Some(converted) = self.data_type.convert(value) else { return false };
-        self.value = converted;
+        let Some(shaped) = self.shape(value) else { return false };
+        self.value = shaped;
         self.operator_override = true;
         true
     }

@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use tokio::sync::Notify;
 
 use crate::config::Config;
@@ -35,6 +35,19 @@ struct State {
     modbus_pushed: HashMap<u16, Vec<u16>>,
     /// Что мы сами положили в OPC UA-узлы (по индексу тега): кладём только изменения.
     opcua_pushed: Vec<Option<Value>>,
+    /// Условие действия записи (`write_requires`): индекс тега-условия и значение, при котором запись действует.
+    requires: Vec<Option<(usize, f64)>>,
+}
+
+/// Что стало с записью: значение принято или команда принята, а значение осталось за программой.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Effect {
+    Applied,
+    Ignored,
+}
+
+fn normalized(field: &str) -> String {
+    field.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
 /// Результат одного шага цикла.
@@ -75,11 +88,31 @@ impl Plc {
             ensure!(by_address.insert(t.address.clone(), i).is_none(), "address {:?} повторяется", t.address);
         }
         let opcua_pushed = vec![None; tags.len()];
+        // Условия записи: тег-условие ищем по (прибор, поле).
+        let mut by_device_field: HashMap<(&str, String), usize> = HashMap::new();
+        for (i, t) in tags.iter().enumerate() {
+            if let (Some(d), Some(f)) = (&t.device, &t.field) {
+                by_device_field.entry((d.as_str(), normalized(f))).or_insert(i);
+            }
+        }
+        let mut requires = Vec::with_capacity(tags.len());
+        for t in &tags {
+            requires.push(match &t.write_requires {
+                None => None,
+                Some(r) => {
+                    let &g = by_device_field.get(&(r.device.as_str(), normalized(&r.field))).with_context(|| {
+                        format!("тег {}: write_requires ссылается на {}.{}, такого тега нет", t.name, r.device, r.field)
+                    })?;
+                    Some((g, r.equals))
+                }
+            });
+        }
+        drop(by_device_field);
         Ok(Plc {
             id: cfg.plc.id.clone(),
             name: cfg.plc.name.clone(),
             update_rate: Duration::from_secs_f64(cfg.plc.update_rate),
-            state: Mutex::new(State { tags, by_address, modbus_pushed: HashMap::new(), opcua_pushed }),
+            state: Mutex::new(State { tags, by_address, modbus_pushed: HashMap::new(), opcua_pushed, requires }),
             replay,
             wake: Notify::new(),
         })
@@ -131,6 +164,7 @@ impl Plc {
     pub fn cycle(&self, modbus: &Registers) -> Cycle {
         let mut guard = self.state.lock().expect("состояние");
         let s = &mut *guard;
+        Self::revert_gated(s);
         self.apply_replay(s);
 
         let mut out = Cycle::default();
@@ -153,6 +187,43 @@ impl Plc {
         out
     }
 
+    /// Условие записи пропало (клапан вернули в автоматический режим) — значение снова за программой ПЛК.
+    fn revert_gated(s: &mut State) {
+        for i in 0..s.tags.len() {
+            if let Some((g, equals)) = s.requires[i]
+                && s.tags[i].operator_override
+                && s.tags[g].value.as_f64() != Some(equals)
+            {
+                let tag = &mut s.tags[i];
+                tag.operator_override = false;
+                tag.value = tag.base.clone();
+            }
+        }
+    }
+
+    /// Запись оператора в тег `i` по правилам прошивки. Команда принимается всегда, если значение приводится
+    /// к типу; действует она только для полей, которые программа не считает сама (`write: ignore`) и при
+    /// выполненном условии (`write_requires`). Err — тег не для записи или значение не приводится к типу.
+    fn write_tag(s: &mut State, i: usize, value: &Value) -> Result<Effect, WriteError> {
+        let tag = &s.tags[i];
+        if !tag.writable {
+            return Err(WriteError::NotWritable);
+        }
+        let shaped = tag.shape(value).ok_or(WriteError::TypeMismatch)?;
+        if tag.write_ignored {
+            return Ok(Effect::Ignored);
+        }
+        if let Some((g, equals)) = s.requires[i]
+            && s.tags[g].value.as_f64() != Some(equals)
+        {
+            return Ok(Effect::Ignored);
+        }
+        let tag = &mut s.tags[i];
+        tag.value = shaped;
+        tag.operator_override = true;
+        Ok(Effect::Applied)
+    }
+
     /// Сначала обратное чтение (шлюз пишет команду прямо в регистры, и без этой проверки мы затёрли
     /// бы её своим значением), потом — запись текущего значения. Регистр RO-тега чужую запись не
     /// принимает: на следующем цикле в нём снова значение прибора.
@@ -166,7 +237,7 @@ impl Plc {
             && &regs != pushed
             && let Some(written) = mtype.decode(&regs)
         {
-            s.tags[i].set_operator(&written);
+            let _ = Self::write_tag(s, i, &written);
         }
         let regs = mtype.encode(&s.tags[i].value);
         modbus.write(address, &regs);
@@ -177,42 +248,43 @@ impl Plc {
     pub fn opcua_write(&self, address: &str, value: &Value) -> Result<(), WriteError> {
         let mut s = self.state.lock().expect("состояние");
         let &i = s.by_address.get(address).ok_or(WriteError::UnknownTag)?;
-        let tag = &mut s.tags[i];
-        if tag.protocol != Protocol::OpcUa {
+        if s.tags[i].protocol != Protocol::OpcUa {
             return Err(WriteError::UnknownTag);
         }
-        if !tag.writable {
-            return Err(WriteError::NotWritable);
-        }
-        if !tag.set_operator(value) {
-            return Err(WriteError::TypeMismatch);
-        }
+        Self::write_tag(&mut s, i, value)?;
         drop(s);
         self.wake.notify_one();
         Ok(())
     }
 
-    /// Команда драйвера (EXEC_DEVICE_COMMAND): установить RW-тег `device.field` (поле-массив —
-    /// `field[idx]`). false — такого RW-тега нет.
+    /// Команда драйвера (EXEC_DEVICE_COMMAND): `device.field` (поле-массив — `field[idx]`). true — код результата 0.
+    /// Как у прошивки: неизвестный прибор и значение, не приводящееся к типу (ошибка Lua), — код 1; известный прибор
+    /// принимает команду всегда, даже на поле, которого у него нет, или такое, что считает программа ПЛК (запись в
+    /// них просто не меняет значение).
     pub fn pac_write(&self, device: &str, field: &str, index: Option<u32>, value: &Value) -> bool {
         let mut s = self.state.lock().expect("состояние");
+        let is_pac_device = |t: &Tag| t.protocol == Protocol::Pac && t.device.as_deref() == Some(device);
+        if !s.tags.iter().any(is_pac_device) {
+            return false;
+        }
         let wanted = index.map(|i| format!("{field}[{i}]"));
-        let found = s.tags.iter_mut().find(|t| {
-            t.protocol == Protocol::Pac
-                && t.writable
-                && t.device.as_deref() == Some(device)
+        let found = s.tags.iter().position(|t| {
+            is_pac_device(t)
                 && t.field.as_deref().is_some_and(|f| match &wanted {
                     // set_cmd('RT_PAR_F', 12, v): поле канала — RT_PAR_F[12] (хвост после ] — подпись).
                     Some(w) if f.starts_with(w.as_str()) => f.len() == w.len() || f[w.len()..].starts_with('.'),
                     _ => f == field,
                 })
         });
-        let ok = found.is_some_and(|t| t.set_operator(value));
+        let accepted = match found {
+            None => true,
+            Some(i) => !matches!(Self::write_tag(&mut s, i, value), Err(WriteError::TypeMismatch)),
+        };
         drop(s);
-        if ok {
+        if accepted {
             self.wake.notify_one();
         }
-        ok
+        accepted
     }
 }
 
@@ -302,13 +374,124 @@ mod tests {
         assert!(plc.pac_write("LINE1V0", "M", None, &Value::Int(1)));
         assert!(plc.pac_write("OBJECT1", "RT_PAR_F", Some(12), &Value::Float(7.5)), "поле-массив по индексу");
         assert!(plc.pac_write("OBJECT1", "PAR_MAIN", Some(1), &Value::Float(2.0)), "хвост после ] — подпись канала");
-        assert!(!plc.pac_write("LINE1V0", "ST", None, &Value::Int(5)), "RO-поле");
+        assert!(
+            plc.pac_write("LINE1V0", "ST", None, &Value::Int(5)),
+            "RO-поле принимается (код 0), как у прошивки, но не меняется"
+        );
         assert!(!plc.pac_write("NO_SUCH", "M", None, &Value::Int(1)));
         let snap = plc.cycle(&regs).pac;
         assert_eq!(snap["v"], Value::Int(1));
         assert_eq!(snap["p"], Value::Float(7.5));
         assert_eq!(snap["q"], Value::Float(2.0));
         assert_eq!(snap["s"], Value::Int(1));
+    }
+
+    /// Правила записи настоящей прошивки ptusa (снято с эмулятора мойки): главный клапан линии в автоматическом
+    /// режиме команду принимает, но не открывается; в ручном режиме держит; вернули автоматику — закрывается;
+    /// обычный клапан держит команду в любом режиме.
+    fn firmware_config() -> Config {
+        config(
+            "{name: v0st, address: a1, type: int, protocol: pac, device: LINE1V0, field: ST, access: RW, initial: 0, \
+              write_state: true, write_requires: {field: M, equals: 1}}, \
+             {name: v0m, address: a2, type: int, protocol: pac, device: LINE1V0, field: M, access: RW, initial: 0}, \
+             {name: v1st, address: b1, type: int, protocol: pac, device: LINE1V1, field: ST, access: RW, initial: 0, write_state: true}, \
+             {name: v1m, address: b2, type: int, protocol: pac, device: LINE1V1, field: M, access: RW, initial: 0}, \
+             {name: lvl, address: c1, type: float, protocol: pac, device: LT1, field: CLEVEL, access: RW, initial: 12.5, write: ignore}, \
+             {name: par, address: d1, type: float, protocol: pac, device: OBJECT1, field: 'RT_PAR_F[12]', access: RW, initial: 1, write_int: true}, \
+             {name: ro, address: e1, type: float, protocol: pac, device: LT1, field: V, access: RO, initial: 3}",
+        )
+    }
+
+    #[test]
+    fn gated_valve_opens_only_in_manual_mode_and_closes_when_automation_returns() {
+        let plc = Plc::new(&firmware_config(), None).unwrap();
+        let regs = Registers::new();
+        plc.cycle(&regs);
+        let on = Value::Int(1);
+        assert!(plc.pac_write("LINE1V0", "ST", None, &on), "команда принимается (код 0)");
+        plc.cycle(&regs);
+        assert_eq!(plc.value("a1"), Some(Value::Int(0)), "в автоматическом режиме клапан V0 не открылся");
+        assert!(plc.pac_write("LINE1V0", "M", None, &on));
+        assert!(plc.pac_write("LINE1V0", "ST", None, &on));
+        plc.cycle(&regs);
+        assert_eq!((plc.value("a2"), plc.value("a1")), (Some(Value::Int(1)), Some(Value::Int(1))), "в ручном — держит");
+        plc.cycle(&regs);
+        assert_eq!(plc.value("a1"), Some(Value::Int(1)));
+        plc.pac_write("LINE1V0", "M", None, &Value::Int(0));
+        plc.cycle(&regs);
+        assert_eq!(plc.value("a1"), Some(Value::Int(0)), "вернули автоматику — снова за программой");
+        // Обычный клапан держит команду независимо от режима.
+        plc.pac_write("LINE1V1", "ST", None, &on);
+        plc.cycle(&regs);
+        assert_eq!(plc.value("b1"), Some(Value::Int(1)));
+        plc.pac_write("LINE1V1", "M", None, &on);
+        plc.pac_write("LINE1V1", "M", None, &Value::Int(0));
+        plc.cycle(&regs);
+        assert_eq!(plc.value("b1"), Some(Value::Int(1)));
+    }
+
+    #[test]
+    fn state_fields_are_normalized_and_computed_fields_ignore_writes() {
+        let plc = Plc::new(&firmware_config(), None).unwrap();
+        let regs = Registers::new();
+        plc.cycle(&regs);
+        // Состояние: целая часть, отличная от нуля, — 1; 0.5 — это 0.
+        plc.pac_write("LINE1V1", "ST", None, &Value::Int(7));
+        assert_eq!(plc.value("b1"), Some(Value::Int(1)));
+        plc.pac_write("LINE1V1", "ST", None, &Value::Float(0.5));
+        assert_eq!(plc.value("b1"), Some(Value::Int(0)));
+        // Поле, которое считает программа: принято (код 0), значение прежнее — и по PAC, и по OPC UA.
+        assert!(plc.pac_write("LT1", "CLEVEL", None, &Value::Float(99.0)));
+        assert_eq!(plc.value("c1"), Some(Value::Float(12.5)));
+        assert_eq!(plc.opcua_write("c1", &Value::Float(99.0)), Err(WriteError::UnknownTag), "тег на PAC, не на OPC UA");
+        // Поле хранится целым: 7.5 → 7.
+        assert!(plc.pac_write("OBJECT1", "RT_PAR_F", Some(12), &Value::Float(7.5)));
+        assert_eq!(plc.value("d1"), Some(Value::Float(7.0)));
+    }
+
+    #[test]
+    fn pac_answers_like_the_firmware_to_odd_commands() {
+        let plc = Plc::new(&firmware_config(), None).unwrap();
+        assert!(!plc.pac_write("NO_SUCH", "ST", None, &Value::Int(1)), "неизвестный прибор — код 1");
+        assert!(plc.pac_write("LINE1V1", "NOPE", None, &Value::Int(1)), "неизвестное поле известного прибора — код 0");
+        assert!(!plc.pac_write("LINE1V1", "ST", None, &Value::Text("abc".into())), "не число — ошибка Lua, код 1");
+        assert!(
+            plc.pac_write("LT1", "V", None, &Value::Float(1.0)),
+            "поле только для чтения принимается и игнорируется"
+        );
+        assert_eq!(plc.value("e1"), Some(Value::Float(3.0)));
+    }
+
+    #[test]
+    fn write_rules_over_opcua_follow_the_same_table() {
+        let cfg = config(
+            "{name: v0st, address: a1, type: int, device: LINE1V0, field: ST, access: RW, write_requires: {field: M, equals: 1}}, \
+             {name: v0m, address: a2, type: int, device: LINE1V0, field: M, access: RW}",
+        );
+        let plc = Plc::new(&cfg, None).unwrap();
+        let regs = Registers::new();
+        plc.cycle(&regs);
+        assert_eq!(
+            plc.opcua_write("a1", &Value::Int(1)),
+            Ok(()),
+            "OPC UA: запись проходит (Good), значение не меняется"
+        );
+        plc.cycle(&regs);
+        assert_eq!(plc.value("a1"), Some(Value::Int(0)));
+        plc.opcua_write("a2", &Value::Int(1)).unwrap();
+        plc.opcua_write("a1", &Value::Int(1)).unwrap();
+        assert_eq!(plc.value("a1"), Some(Value::Int(1)));
+    }
+
+    #[test]
+    fn broken_write_rules_stop_the_start() {
+        let missing =
+            config("{name: a, type: int, device: D, field: ST, access: RW, write_requires: {field: M, equals: 1}}");
+        assert!(format!("{:#}", Plc::new(&missing, None).err().unwrap()).contains("D.M"));
+        let no_device = config("{name: a, type: int, access: RW, write_requires: {field: M, equals: 1}}");
+        assert!(Plc::new(&no_device, None).is_err(), "условие без прибора");
+        let bad = config("{name: a, type: int, access: RW, write: sometimes}");
+        assert!(Plc::new(&bad, None).is_err());
     }
 
     #[test]

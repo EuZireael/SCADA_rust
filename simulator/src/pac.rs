@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use flate2::Compression;
 use flate2::write::ZlibEncoder;
 use regex::Regex;
@@ -327,40 +327,16 @@ pub async fn serve(listener: TcpListener, model: Arc<PacModel>) {
     }
 }
 
-/// Клиентский запрос driver-master: кадр → распакованное тело ответа.
-async fn request(stream: &mut TcpStream, pidx: u8, cmd: u8) -> Result<Vec<u8>> {
-    stream.write_all(&[NET_ID, 1, 1, pidx, 0, 1, cmd]).await?;
-    let mut hdr = [0u8; 5];
-    stream.read_exact(&mut hdr).await?;
-    anyhow::ensure!(hdr[0] == NET_ID && hdr[1] != STATUS_ERROR, "PAC: ответ {hdr:?} на команду {cmd}");
-    let mut packed = vec![0u8; (usize::from(hdr[3]) << 8) | usize::from(hdr[4])];
-    stream.read_exact(&mut packed).await?;
-    if packed.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut body = Vec::new();
-    std::io::Read::read_to_end(&mut flate2::read::ZlibDecoder::new(&packed[..]), &mut body)?;
-    Ok(body)
-}
-
 /// Мини-«драйвер» PAC для отладки (как `tools/pac_probe.py` прежнего симулятора): handshake, объектная
 /// модель и снимок состояний любого PAC — симулятора или настоящей прошивки ptusa — печатаются Lua-текстом.
 pub async fn probe(host: &str, port: u16) -> Result<()> {
-    let mut stream = tokio::time::timeout(std::time::Duration::from_secs(3), TcpStream::connect((host, port)))
-        .await
-        .context("таймаут подключения")??;
-    let mut banner = vec![0u8; BANNER.len()];
-    stream.read_exact(&mut banner).await?;
-    anyhow::ensure!(banner == BANNER, "нет приветствия PAC accept: {banner:?}");
+    let mut client = crate::pac_client::PacClient::connect(host, port).await?;
     println!(
         "== GET_INFO_ON_CONNECT ==\n{}",
-        String::from_utf8_lossy(&request(&mut stream, 1, CMD_GET_INFO_ON_CONNECT).await?)
+        String::from_utf8_lossy(&client.request(CMD_GET_INFO_ON_CONNECT, &[]).await?)
     );
-    for (pidx, cmd, title) in [(2, CMD_GET_DEVICES, "GET_DEVICES"), (3, CMD_GET_DEVICES_STATES, "GET_DEVICES_STATES")] {
-        let body = request(&mut stream, pidx, cmd).await?;
-        // Первые 2 байта — devices_request_id (LE).
-        println!("== {title} ==\n{}", String::from_utf8_lossy(body.get(2..).unwrap_or_default()));
-    }
+    println!("== GET_DEVICES ==\n{}", client.devices_lua().await?);
+    println!("== GET_DEVICES_STATES ==\n{}", client.states_lua().await?);
     Ok(())
 }
 
@@ -525,9 +501,14 @@ mod tests {
         assert!(info.contains("PAC_name = \"BN1-МСА1\""), "{info}");
 
         // Неверный заголовок — соединение рвётся.
-        // Клиент `probe` на том же сервере (и тест запроса целиком).
-        let states = request(&mut s, 9, CMD_GET_DEVICES_STATES).await.unwrap();
-        assert!(String::from_utf8_lossy(&states).contains("LINE1V0={M=0, ST=1}"));
+        // Клиент на том же сервере (и тест запроса целиком).
+        let mut client = crate::pac_client::PacClient::connect("127.0.0.1", port).await.unwrap();
+        assert!(client.states_lua().await.unwrap().contains("LINE1V0={M=0, ST=1}"));
+        assert_eq!(
+            client.exec("__LINE1V0:set_cmd('M', 1, 1)").await.unwrap(),
+            1,
+            "в этой модели on_write всегда false"
+        );
 
         s.write_all(&[b'x', 0, 0, 0, 0, 0]).await.unwrap();
         let mut rest = Vec::new();

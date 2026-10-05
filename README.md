@@ -68,6 +68,8 @@ SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094 \
   (`plc-simulator`, коммит `76db32c`), переписан на Rust (файлы остались в истории git).
   Отдельный пакет со своим `Cargo.lock`: `cd simulator && cargo run --release -- config/replay_config.yaml`
   (`OPCUA_ENDPOINT`, `MODBUS_PORT`, `PAC_PORT`), тесты — `cargo test`, образ — `docker build ./simulator`.
+  Условная логика настоящей прошивки (поля, которые программа ПЛК не отдаёт оператору, клапаны только в ручном режиме) снята
+  с эмулятора мойки и повторена в симуляторе: `docs/FIRMWARE_WRITE_BEHAVIOR.md`; `simulator conformance` проверяет её у любого PAC.
   `simulator probe-pac [host] [порт]` печатает handshake, объектную модель и снимок любого PAC —
   симулятора или настоящей прошивки ptusa.
 - `config/controllers.yaml` — 2517 каналов на трёх контроллерах; согласован с
