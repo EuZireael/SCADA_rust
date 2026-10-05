@@ -167,6 +167,12 @@ pub struct GatewaySettings {
     pub scripts: ScriptSettings,
     pub ha: HaSettings,
     pub opcua_op_timeout: Duration,
+    /// Каталог сертификатов OPC UA-клиента (`own/`, `private/`, `trusted/`, `rejected/`): свой
+    /// самоподписанный сертификат создаётся здесь, сертификаты серверов, которым шлюз доверяет, лежат в `trusted/`.
+    pub opcua_pki_dir: PathBuf,
+    /// Доверять любому сертификату сервера (только для стенда: без проверки сервера защищённый канал
+    /// не защищает от подмены). По умолчанию — нет: сертификат сервера кладут в `trusted/`.
+    pub opcua_trust_server_certs: bool,
     pub modbus_op_timeout: Duration,
     pub pac_op_timeout: Duration,
     /// Нет удачных чтений дольше — связь считается мёртвой, сессия пересоздаётся.
@@ -315,6 +321,10 @@ impl Settings {
                     yield_after: env_ms(&["GATEWAY_HA_YIELD_AFTER_MS", "GATEWAY_HA_YIELDAFTERMS"], 30_000)?,
                 },
                 opcua_op_timeout: env_ms(&["GATEWAY_OPCUA_OP_TIMEOUT_MS", "GATEWAY_OPCUAOPTIMEOUTMS"], 5000)?,
+                opcua_pki_dir: env_any(&["GATEWAY_OPCUA_PKI_DIR"])
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| std::env::temp_dir().join("scada-gateway-pki")),
+                opcua_trust_server_certs: env_bool(&["GATEWAY_OPCUA_TRUST_SERVER_CERTS"], false),
                 modbus_op_timeout: env_ms(&["GATEWAY_MODBUS_OP_TIMEOUT_MS", "GATEWAY_MODBUSOPTIMEOUTMS"], 3000)?,
                 pac_op_timeout: env_ms(&["GATEWAY_PAC_OP_TIMEOUT_MS", "GATEWAY_PACOPTIMEOUTMS"], 3000)?,
                 stale_after: env_ms(&["GATEWAY_STALE_AFTER_MS"], 30_000)?,
@@ -430,22 +440,43 @@ pub struct ControllersSection {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerConfig {
-    // id/security/username/password разбираются для совместимости формата; стенд работает
-    // с политикой None и анонимно.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // id разбирается для совместимости формата с Java-шлюзом
     pub id: Option<String>,
     pub name: String,
     pub endpoint: String,
-    #[allow(dead_code)]
+    /// Политика и режим канала OPC UA: `None` (по умолчанию), `Basic256Sha256`, `Aes256_Sha256_RsaPss_Sign`…
     pub security: Option<String>,
-    #[allow(dead_code)]
+    /// Пользователь OPC UA (вместе с `password`; пароль удобно держать в `${PLC_PASSWORD}`).
     pub username: Option<String>,
-    #[allow(dead_code)]
     pub password: Option<String>,
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
     pub tags: Vec<TagConfig>,
+}
+
+impl ServerConfig {
+    /// Защита соединения с OPC UA-контроллером из `security`/`username`/`password`.
+    pub fn opc_security(&self) -> Result<crate::model::OpcSecurity> {
+        crate::model::OpcSecurity::parse(self.security.as_deref(), self.username.as_deref(), self.password.as_deref())
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    /// Проверка при старте: молча проигнорированные настройки защиты — дыра, поэтому ошибка в `security`
+    /// или защита у протокола, который её не поддерживает (Modbus, PAC), останавливают запуск.
+    pub fn validate(&self) -> Result<()> {
+        let security = self.opc_security().with_context(|| format!("контроллер {:?}", self.name))?;
+        let is_opcua = self.endpoint.starts_with("opc.tcp://");
+        if !is_opcua && (security.is_secure() || security.username.is_some()) {
+            bail!(
+                "контроллер {:?}: security/username/password поддерживаются только для OPC UA (endpoint {}); \
+                 для Modbus и PAC защиты на уровне протокола нет — не задавайте их, чтобы не думать, что канал защищён",
+                self.name,
+                self.endpoint
+            );
+        }
+        Ok(())
+    }
 }
 
 /// Один тег/канал из YAML — поля как у TagConfig Java-шлюза.
@@ -496,6 +527,9 @@ pub fn load_controllers(path: &std::path::Path) -> Result<Vec<ServerConfig>> {
 
 pub fn parse_controllers(yaml: &str) -> Result<Vec<ServerConfig>> {
     let file: ControllersFile = serde_yaml_ng::from_str(yaml).context("controllers.yaml не разобран")?;
+    for server in file.opcua.servers.iter().filter(|s| s.enabled) {
+        server.validate()?;
+    }
     Ok(file.opcua.servers)
 }
 
@@ -605,6 +639,35 @@ mod tests {
         let err = expand_placeholders("opc.tcp://${PLC_HOST}:${PLC_PORT}", |_| None).unwrap_err().to_string();
         assert!(err.contains("PLC_HOST") && err.contains("PLC_PORT"), "{err}");
         assert_eq!(expand_placeholders("${PLC_HOST}", |_| Some("10.0.0.1".into())).unwrap(), "10.0.0.1");
+    }
+
+    #[test]
+    fn opcua_security_and_credentials_are_parsed_and_validated() {
+        let yaml = |extra: &str, endpoint: &str| {
+            format!(
+                "opcua:\n  servers:\n    - {{name: C, endpoint: \"{endpoint}\", enabled: true, {extra}, tags: []}}\n"
+            )
+        };
+        let ok =
+            parse_controllers(&yaml("security: Basic256Sha256_Sign, username: op, password: pw", "opc.tcp://h:4840"))
+                .unwrap();
+        let sec = ok[0].opc_security().unwrap();
+        assert_eq!((sec.policy, sec.mode), (crate::model::OpcPolicy::Basic256Sha256, crate::model::OpcMode::Sign));
+        assert_eq!(sec.username.as_deref(), Some("op"));
+
+        // Молча проигнорированная защита — дыра: ошибка в security и логин без пароля останавливают запуск.
+        let err = parse_controllers(&yaml("security: Basic999", "opc.tcp://h:4840")).unwrap_err();
+        assert!(format!("{err:#}").contains("Basic999"), "{err:#}");
+        assert!(parse_controllers(&yaml("username: op", "opc.tcp://h:4840")).is_err(), "логин без пароля");
+        // Modbus и PAC защиты на уровне протокола не имеют: настройка не должна создавать иллюзию защиты.
+        for endpoint in ["modbus://h:502", "pac://h:10000"] {
+            let err = parse_controllers(&yaml("security: Basic256Sha256", endpoint)).unwrap_err();
+            assert!(format!("{err:#}").contains("только для OPC UA"), "{err:#}");
+            assert!(parse_controllers(&yaml("username: u, password: p", endpoint)).is_err());
+        }
+        // Выключенный контроллер с ошибкой не мешает запуску остальных.
+        let disabled = "opcua:\n  servers:\n    - {name: D, endpoint: \"opc.tcp://h:4840\", enabled: false, security: Nonsense, tags: []}\n";
+        assert!(parse_controllers(disabled).is_ok());
     }
 
     #[test]
