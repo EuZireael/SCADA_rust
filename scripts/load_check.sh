@@ -35,7 +35,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-metric() { curl -fs "localhost:$PORT/actuator/prometheus" | awk -v n="$1" '$1 == n || index($1, n "{") == 1 { print $NF; exit }'; }
+# awk читает весь вывод до конца (без exit): ранний выход рвал бы конвейер, и curl с pipefail давал код 23.
+metric() { curl -fs "localhost:$PORT/actuator/prometheus" | awk -v n="$1" '!seen && ($1 == n || index($1, n "{") == 1) { print $NF; seen = 1 }'; }
 
 GATEWAY_BIN=${GATEWAY_BIN:-}
 LOADSIM_BIN=${LOADSIM_BIN:-}
