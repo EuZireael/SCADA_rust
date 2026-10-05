@@ -24,9 +24,9 @@ updates:
         update-types: ["minor"]
         patterns: ["anyhow", "flate2", "serde", "serde_json", "thiserror", "tokio", "uuid", "tempfile"]
 
-  # ---- Rust: PLC-симулятор и нагрузочный источник (отдельные пакеты со своими Cargo.lock) ----
+  # ---- Rust: PLC-симулятор, OPC UA-фасад и нагрузочный источник (отдельные пакеты со своими Cargo.lock) ----
   - package-ecosystem: "cargo"
-    directories: ["/simulator", "/loadtest/loadsim"]
+    directories: ["/simulator", "/ptusa-opcua", "/loadtest/loadsim"]
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
@@ -59,6 +59,13 @@ updates:
       prefix: "chore(deps)"
   - package-ecosystem: "docker"
     directory: "/simulator"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "chore(deps)"
+  - package-ecosystem: "docker"
+    directory: "/ptusa-opcua"
     schedule:
       interval: "weekly"
     labels: ["dependencies", "docker"]

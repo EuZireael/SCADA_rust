@@ -170,7 +170,7 @@ public class StationConfig {
     /**
      * Имя узла OPC UA по имени в ПЛК: {@code LINE1V0.ST}, {@code OBJECT1.RT_PAR_F[12]},
      * {@code LINE1G1.ST_CH[1]} — пробелы внутри индекса (так в базе каналов) убираются. Так же
-     * узлы называет OPC UA-фасад эмулятора (ptusa-opcua/bridge.py).
+     * узлы называет OPC UA-фасад эмулятора (ptusa-opcua/).
      */
     static String opcNodeName(String object, String field) {
         return object + "." + INDEX.matcher(field).replaceAll("[$1]");

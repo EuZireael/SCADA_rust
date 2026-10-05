@@ -1,11 +1,28 @@
-# OPC UA-фасад эмулятора мойки (bridge.py). Сама прошивка ptusa — отдельный контейнер
-# (debian:stable: glibc ≥ 2.38), фасад — Python 3.11 (asyncua 1.1.8), поэтому два сервиса.
-FROM python:3.11-slim
+# ============================================================================
+# Образ OPC UA-фасада эмулятора мойки (Rust). Сама прошивка ptusa — отдельный контейнер
+# (debian:stable: glibc ≥ 2.38), фасад — бинарник, поэтому два сервиса. Двухэтапная сборка:
+# компиляция в rust:bookworm (Lua собирается из исходников — нужен C-компилятор, он в образе),
+# рантайм — debian:bookworm-slim.
+#
+#   docker build -t ptusa-opcua ./ptusa-opcua
+#   docker run -v $PWD/config/stations/BN1_MCA1.yaml:/config/station.yaml:ro \
+#     -e PAC_HOST=ptusa -p 4840:4840 ptusa-opcua
+# ============================================================================
+FROM rust:1-bookworm AS build
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+# Кэш реестра crates и target между сборками (BuildKit).
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    cargo build --release --locked \
+ && cp target/release/ptusa-opcua /usr/local/bin/ptusa-opcua
+
+FROM debian:bookworm-slim
+RUN groupadd -r opcua && useradd -r -g opcua -u 1001 opcua
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY bridge.py .
+COPY --from=build /usr/local/bin/ptusa-opcua /app/ptusa-opcua
 EXPOSE 4840
-HEALTHCHECK --interval=10s --timeout=5s --retries=6 --start-period=10s \
-  CMD python -c "import socket; socket.create_connection(('127.0.0.1', 4840), 2).close()"
-CMD ["python", "-u", "bridge.py"]
+USER opcua
+HEALTHCHECK --interval=10s --timeout=5s --retries=6 --start-period=10s CMD ["/app/ptusa-opcua", "healthcheck"]
+ENTRYPOINT ["/app/ptusa-opcua"]
