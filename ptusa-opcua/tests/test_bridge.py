@@ -24,6 +24,66 @@ NS = "urn:savushkin:ptusa"
 
 # ------------------------------------------------------------------ чистые функции --
 
+# ------------------------------------------------- песочница Lua: снимок присылает «прошивка» --
+
+def test_lua_sandbox_has_no_python_or_host_access():
+    lua, arm = bridge.sandboxed_lua()
+    arm(1.0)
+    for name in ("python", "os", "io", "debug", "package", "require", "load", "loadstring", "loadfile",
+                 "dofile", "coroutine", "collectgarbage"):
+        assert lua.eval(f"type({name})") == "nil", name
+    assert lua.eval("type(string.dump)") == "nil"
+    # Обычный разбор снимка работает: string/table/math на месте.
+    lua.execute("t = {A = {V = math.max(1, 2), S = string.upper('ok')}}")
+    assert lua.globals().t.A.V == 2
+
+
+def test_lua_python_escape_attempts_fail():
+    lua, arm = bridge.sandboxed_lua()
+    for attack in ("python.eval('1+1')", "python.builtins.__import__('os')", "os.execute('true')",
+                   "io.open('/etc/passwd')", "load('return 1')()", "debug.sethook()",
+                   "require('os')", "string.dump(print)"):
+        arm(1.0)
+        with pytest.raises(Exception):
+            lua.execute("x = " + attack)
+
+
+def test_lua_endless_loop_is_stopped_by_time_budget():
+    import time
+    lua, arm = bridge.sandboxed_lua()
+    arm(0.2)
+    started = time.monotonic()
+    with pytest.raises(Exception, match="time limit"):
+        lua.execute("while true do end")
+    assert time.monotonic() - started < 3
+    # Лимит — на каждый скрипт: следующий снимок разбирается.
+    arm(1.0)
+    lua.execute("t = {X = 1}")
+    assert lua.globals().t.X == 1
+
+
+def test_lua_script_cannot_extend_its_own_time_budget():
+    lua, arm = bridge.sandboxed_lua()
+    arm(0.2)
+    with pytest.raises(Exception):
+        lua.execute("__arm = function() end; arm = function() end; while true do end")
+
+
+def test_lua_memory_bomb_is_stopped():
+    lua, arm = bridge.sandboxed_lua()
+    arm(2.0)
+    with pytest.raises(Exception):
+        lua.execute("s = string.rep('x', 512 * 1024 * 1024)")
+
+
+def test_zlib_bomb_is_rejected():
+    bomb = zlib.compress(b"\0" * (64 * 1024 * 1024), 9)
+    assert len(bomb) < 100 * 1024
+    with pytest.raises(ConnectionError, match="распаковывается"):
+        bridge.inflate(bomb)
+    assert bridge.inflate(zlib.compress(b"t={}")) == b"t={}"
+
+
 def test_field_and_node_names_normalize_indexes():
     m = bridge.FIELD_RE.match("ST_CH[ 3 ]")
     assert (m.group(1), int(m.group(2))) == ("ST_CH", 3)
