@@ -39,8 +39,13 @@ fn ha_env(prefix: &str, instance: &str) -> Vec<(String, String)> {
 }
 
 fn start(prefix: &str, instance: &str) -> Gateway {
+    start_with(prefix, instance, &[])
+}
+
+fn start_with(prefix: &str, instance: &str, extra: &[(&str, &str)]) -> Gateway {
     let env = ha_env(prefix, instance);
-    let refs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let mut refs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    refs.extend_from_slice(extra);
     Gateway::start_on(prefix, &controllers_path(), &refs)
 }
 
@@ -157,4 +162,60 @@ async fn hot_standby_failover() {
     let (r, _) = command(&producer, &results, &prefix, rw_tag, json!(0)).await;
     assert_eq!(r["status"], "APPLIED", "{r}");
     a2.delete_topics().await;
+}
+
+/// Активный, потерявший связь со ВСЕМИ контроллерами, передаёт лидерство партнёру, который их видит
+/// (у него другой сетевой путь к ПЛК), и лидерство потом не отбирает.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "нужны симулятор и Kafka с group.min.session.timeout.ms ≤ 1000: cargo test -- --ignored"]
+async fn blind_active_yields_leadership_to_a_peer_that_sees_the_plcs() {
+    let prefix = new_prefix();
+    let expected: HashSet<String> = controllers().iter().flat_map(|c| c.tags.iter().map(|t| t.name.clone())).collect();
+
+    // A «слепой»: SIM_HOST ведёт на недостижимый адрес (0.0.0.1 — connect() отказывает сразу).
+    let a = start_with(
+        &prefix,
+        "blind",
+        &[("SIM_HOST", "0.0.0.1"), ("GATEWAY_HA_YIELD_AFTER_MS", "3000"), ("GATEWAY_STALE_AFTER_MS", "3000")],
+    );
+    a.wait_role("ACTIVE", Duration::from_secs(40)).await;
+    let b = start_with(&prefix, "sighted", &[("GATEWAY_HA_YIELD_AFTER_MS", "3000")]);
+    b.wait_role("STANDBY", Duration::from_secs(40)).await;
+    b.wait_links("UP", Duration::from_secs(40)).await;
+    a.wait_links("DOWN", Duration::from_secs(40)).await;
+
+    // Связь с OPC UA считается потерянной после stale-after (3 с), слепота ≥ 3 с, затем проверка партнёра (раз в 5 с) → передача лидерства.
+    let handover_from = chrono::Utc::now().timestamp_millis();
+    let t0 = Instant::now();
+    b.wait_role("ACTIVE", Duration::from_secs(30)).await;
+    println!("HA: слепой активный передал лидерство за {} мс", t0.elapsed().as_millis());
+    assert_eq!(a.role().as_deref(), Some("STANDBY"), "слепой ушёл в резерв\n{}", a.log_tail());
+
+    // Зрячий активный заново отправил все теги.
+    let telemetry = consumer_from_beginning(&b.topic("tags")).await;
+    let seen = tags_since(&telemetry, &expected, handover_from, Duration::from_secs(20)).await;
+    assert_eq!(seen.len(), expected.len(), "после передачи пришло {}/{} тегов", seen.len(), expected.len());
+
+    // Слепой вернулся в группу (пауза ≥ 5 с), но лидерство не отбирает и сам не «качается».
+    tokio::time::sleep(Duration::from_secs(12)).await;
+    assert_eq!(b.role().as_deref(), Some("ACTIVE"), "{}", b.log_tail());
+    assert_eq!(a.role().as_deref(), Some("STANDBY"), "{}", a.log_tail());
+    b.delete_topics().await;
+}
+
+/// Без партнёра слепой активный остаётся активным: BAD-кадры монитору нужны, отдавать лидерство некому.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "нужны симулятор и Kafka с group.min.session.timeout.ms ≤ 1000: cargo test -- --ignored"]
+async fn blind_active_without_a_peer_stays_active() {
+    let prefix = new_prefix();
+    let a = start_with(
+        &prefix,
+        "alone",
+        &[("SIM_HOST", "0.0.0.1"), ("GATEWAY_HA_YIELD_AFTER_MS", "2000"), ("GATEWAY_STALE_AFTER_MS", "3000")],
+    );
+    a.wait_role("ACTIVE", Duration::from_secs(40)).await;
+    a.wait_links("DOWN", Duration::from_secs(40)).await;
+    tokio::time::sleep(Duration::from_secs(12)).await;
+    assert_eq!(a.role().as_deref(), Some("ACTIVE"), "{}", a.log_tail());
+    a.delete_topics().await;
 }

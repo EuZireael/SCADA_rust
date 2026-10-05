@@ -117,9 +117,15 @@ impl Gateway {
     }
 
     pub fn get(&self, path: &str) -> Option<(u16, String)> {
+        self.get_with(path, None)
+    }
+
+    /// GET с заголовком `Authorization: Bearer <token>`.
+    pub fn get_with(&self, path: &str, bearer: Option<&str>) -> Option<(u16, String)> {
         let mut s = TcpStream::connect_timeout(&([127, 0, 0, 1], self.port).into(), Duration::from_secs(2)).ok()?;
         s.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
-        write!(s, "GET {path} HTTP/1.0\r\nHost: localhost\r\n\r\n").ok()?;
+        let auth = bearer.map(|t| format!("Authorization: Bearer {t}\r\n")).unwrap_or_default();
+        write!(s, "GET {path} HTTP/1.0\r\nHost: localhost\r\n{auth}\r\n").ok()?;
         let mut resp = String::new();
         s.read_to_string(&mut resp).ok()?;
         let status = resp.split_whitespace().nth(1)?.parse().ok()?;

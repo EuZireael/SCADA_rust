@@ -2,8 +2,9 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::{StatusCode, header};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -14,9 +15,7 @@ use crate::app::App;
 use crate::db::{self, EventFilter};
 
 pub fn router(app: Arc<App>) -> Router {
-    Router::new()
-        .route("/actuator/health", get(health))
-        .route("/actuator/prometheus", get(prometheus))
+    let api = Router::new()
         .route("/api/health", get(api_health))
         .route("/api/status", get(status))
         .route("/api/ha", get(ha))
@@ -28,7 +27,52 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/events/alarms/unacknowledged", get(unacknowledged))
         .route("/api/events/{id}/acknowledge", post(acknowledge))
         .route("/api/events/stats", get(stats))
+        .route_layer(middleware::from_fn_with_state(app.clone(), require_token));
+    Router::new()
+        .route("/actuator/health", get(health))
+        .route("/actuator/prometheus", get(prometheus))
+        .merge(api)
         .with_state(app)
+}
+
+/// `/api/*` требует `Authorization: Bearer <GATEWAY_API_TOKEN>`, если токен задан (иначе открыт, как раньше).
+async fn require_token(State(app): State<Arc<App>>, req: Request, next: Next) -> Response {
+    if let Some(token) = &app.settings.api_token {
+        let header = req.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok());
+        if !bearer_matches(header, token) {
+            return (StatusCode::UNAUTHORIZED, [(header::WWW_AUTHENTICATE, "Bearer")], "нужен токен доступа\n")
+                .into_response();
+        }
+    }
+    next.run(req).await
+}
+
+/// Заголовок `Authorization` — `Bearer <token>`; сравнение за постоянное время, чтобы токен нельзя
+/// было подобрать по времени ответа.
+fn bearer_matches(header: Option<&str>, token: &str) -> bool {
+    let Some(given) = header.and_then(|h| h.strip_prefix("Bearer ")) else { return false };
+    let (a, b) = (given.trim().as_bytes(), token.as_bytes());
+    let mut diff = a.len() ^ b.len();
+    for i in 0..a.len().max(b.len()) {
+        diff |= usize::from(a.get(i).copied().unwrap_or(0) ^ b.get(i).copied().unwrap_or(0));
+    }
+    diff == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bearer_matches;
+
+    #[test]
+    fn bearer_token_is_checked_exactly() {
+        assert!(bearer_matches(Some("Bearer s3cret"), "s3cret"));
+        assert!(!bearer_matches(Some("Bearer s3cre"), "s3cret"));
+        assert!(!bearer_matches(Some("Bearer s3cret!"), "s3cret"));
+        assert!(!bearer_matches(Some("s3cret"), "s3cret"), "без схемы Bearer");
+        assert!(!bearer_matches(Some("Basic s3cret"), "s3cret"));
+        assert!(!bearer_matches(Some("Bearer "), "s3cret"));
+        assert!(!bearer_matches(None, "s3cret"));
+    }
 }
 
 /// Живость процесса + состояние БД и связи с контроллерами (для глаз; статус UP, пока

@@ -18,12 +18,15 @@
 //!   подтверждалась дольше `session-timeout-ms` (изоляция от сети) — активный уходит в резерв.
 //! * Потеря партиции ловится и колбэком ребаланса (до его завершения), и опросом назначения
 //!   раз в 100 мс.
+//! * «Слепой» активный: если связь потеряна со ВСЕМИ контроллерами дольше `yield-after-ms`, а партнёр
+//!   в группе есть, активный выходит из группы и отдаёт лидерство (партнёр мог сохранить связь —
+//!   у него другой сетевой путь к ПЛК). Возвращается резервным: `cooperative-sticky` лидерство не
+//!   отбирает. Без партнёра в группе ничего не меняется — BAD-кадры монитору всё равно нужны.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
-use rdkafka::ClientConfig;
 use rdkafka::client::ClientContext;
 use rdkafka::consumer::{BaseConsumer, Consumer, ConsumerContext, Rebalance};
 use rdkafka::error::KafkaError;
@@ -37,6 +40,10 @@ use crate::leadership::Leadership;
 
 /// Как часто опрашиваем группу: за столько же замечаем потерю или получение лидерства.
 const POLL: Duration = Duration::from_millis(100);
+/// Не чаще: проверка наличия партнёра в группе — запрос к брокеру.
+const PEER_CHECK_EVERY: Duration = Duration::from_secs(5);
+/// Минимальное время вне группы после передачи лидерства — партнёру нужно успеть его получить.
+const MIN_YIELD_PAUSE: Duration = Duration::from_secs(5);
 /// Пауза перед повтором после ошибки выборов (брокер недоступен, неверная настройка).
 const RETRY_BACKOFF: Duration = Duration::from_secs(2);
 
@@ -75,6 +82,7 @@ pub fn spawn(
     ha: HaSettings,
     kafka_settings: KafkaSettings,
     leadership: Arc<Leadership>,
+    blind: Blind,
     cancel: CancellationToken,
 ) -> Option<std::thread::JoinHandle<()>> {
     if !ha.enabled {
@@ -88,20 +96,40 @@ pub fn spawn(
     Some(
         std::thread::Builder::new()
             .name("ha-elector".into())
-            .spawn(move || election_loop(ha, kafka_settings, leadership, cancel, runtime))
+            .spawn(move || election_loop(ha, kafka_settings, leadership, blind, cancel, runtime))
             .expect("поток выборов"),
     )
+}
+
+/// «Слепота» шлюза: связь потеряна со всеми контроллерами (см. `App::all_links_down`).
+pub type Blind = Arc<dyn Fn() -> bool + Send + Sync>;
+
+/// Сколько непрерывно длится слепота.
+#[derive(Default)]
+struct BlindTracker {
+    since: Option<Instant>,
+}
+
+impl BlindTracker {
+    fn update(&mut self, blind: bool, now: Instant) -> Duration {
+        if !blind {
+            self.since = None;
+            return Duration::ZERO;
+        }
+        now.saturating_duration_since(*self.since.get_or_insert(now))
+    }
 }
 
 fn election_loop(
     ha: HaSettings,
     kafka_settings: KafkaSettings,
     leadership: Arc<Leadership>,
+    blind: Blind,
     cancel: CancellationToken,
     runtime: tokio::runtime::Handle,
 ) {
     while !cancel.is_cancelled() {
-        match run_session(&ha, &kafka_settings, &leadership, &cancel, &runtime) {
+        match run_session(&ha, &kafka_settings, &leadership, &blind, &cancel, &runtime) {
             Ok(()) => {}
             Err(e) => {
                 leadership.set_active(false, &format!("ошибка выборов: {e:#}"));
@@ -122,12 +150,13 @@ fn run_session(
     ha: &HaSettings,
     kafka_settings: &KafkaSettings,
     leadership: &Arc<Leadership>,
+    blind: &Blind,
     cancel: &CancellationToken,
     runtime: &tokio::runtime::Handle,
 ) -> Result<()> {
     runtime.block_on(kafka::ensure_topic(kafka_settings, &ha.topic, 1));
-    let consumer: BaseConsumer<ElectionContext> = ClientConfig::new()
-        .set("bootstrap.servers", &kafka_settings.bootstrap_servers)
+    let consumer: BaseConsumer<ElectionContext> = kafka_settings
+        .client_config()
         .set("group.id", &ha.group_id)
         .set("client.id", format!("scada-gateway-ha-{}", ha.instance_id))
         .set("session.timeout.ms", ha.session_timeout_ms.to_string())
@@ -143,7 +172,9 @@ fn run_session(
         .context("не создан консьюмер выборов")?;
     consumer.subscribe(&[&ha.topic]).context("подписка на служебный топик выборов")?;
 
-    let mut last_error_log = std::time::Instant::now() - Duration::from_secs(60);
+    let mut last_error_log = Instant::now() - Duration::from_secs(60);
+    let mut tracker = BlindTracker::default();
+    let mut last_peer_check = Instant::now() - PEER_CHECK_EVERY;
     while !cancel.is_cancelled() {
         if let Some(Err(e)) = consumer.poll(POLL) {
             // Брокер недоступен — не фатально: librdkafka переподключается, а если сессия истекла,
@@ -152,7 +183,7 @@ fn run_session(
                 return Err(e.into());
             }
             if last_error_log.elapsed() > Duration::from_secs(30) {
-                last_error_log = std::time::Instant::now();
+                last_error_log = Instant::now();
                 warn!("🛡 Kafka (выборы): {e}");
             }
         }
@@ -162,7 +193,24 @@ fn run_session(
             .unwrap_or(false);
         if owner {
             leadership.set_active(true, &format!("получено лидерство в группе {}", ha.group_id));
+            let blind_for = tracker.update(!ha.yield_after.is_zero() && blind(), Instant::now());
+            if !ha.yield_after.is_zero() && blind_for >= ha.yield_after && last_peer_check.elapsed() >= PEER_CHECK_EVERY
+            {
+                last_peer_check = Instant::now();
+                if has_peer(&consumer, &ha.group_id) {
+                    let reason = format!(
+                        "нет связи ни с одним контроллером {} с — лидерство передано партнёру",
+                        blind_for.as_secs()
+                    );
+                    warn!("🛡 {reason}");
+                    leadership.set_active(false, &reason);
+                    drop(consumer); // выход из группы: партнёр получает партицию сразу
+                    sleep_or_cancel(cancel, ha.yield_after.max(MIN_YIELD_PAUSE));
+                    return Ok(());
+                }
+            }
         } else {
+            tracker.update(false, Instant::now());
             leadership.set_active(false, "партиция выборов у другого экземпляра или потеряна связь с брокером");
         }
     }
@@ -173,13 +221,24 @@ fn run_session(
     Ok(())
 }
 
+/// В группе выборов есть ещё участник (кроме нас): иначе отдавать лидерство некому.
+fn has_peer(consumer: &BaseConsumer<ElectionContext>, group: &str) -> bool {
+    match consumer.fetch_group_list(Some(group), Duration::from_secs(5)) {
+        Ok(list) => list.groups().iter().find(|g| g.name() == group).is_some_and(|g| g.members().len() >= 2),
+        Err(e) => {
+            warn!("🛡 Состав группы выборов не получен: {e}");
+            false
+        }
+    }
+}
+
 fn is_fatal(e: &KafkaError) -> bool {
     matches!(e, KafkaError::MessageConsumptionFatal(_) | KafkaError::ClientCreation(_))
 }
 
 fn sleep_or_cancel(cancel: &CancellationToken, d: Duration) {
-    let until = std::time::Instant::now() + d;
-    while std::time::Instant::now() < until && !cancel.is_cancelled() {
+    let until = Instant::now() + d;
+    while Instant::now() < until && !cancel.is_cancelled() {
         std::thread::sleep(Duration::from_millis(50));
     }
 }
@@ -208,5 +267,23 @@ pub async fn record_events(leadership: Arc<Leadership>, events: crate::events::E
                 serde_json::json!({"instance": me, "role": if change.active { "ACTIVE" } else { "STANDBY" }, "reason": change.reason}),
             ),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blindness_is_measured_from_its_start_and_reset_by_any_sight() {
+        let mut t = BlindTracker::default();
+        let t0 = Instant::now();
+        assert_eq!(t.update(false, t0), Duration::ZERO);
+        assert_eq!(t.update(true, t0), Duration::ZERO);
+        assert_eq!(t.update(true, t0 + Duration::from_secs(7)), Duration::from_secs(7));
+        // Хотя бы одна связь вернулась — отсчёт заново.
+        assert_eq!(t.update(false, t0 + Duration::from_secs(8)), Duration::ZERO);
+        assert_eq!(t.update(true, t0 + Duration::from_secs(9)), Duration::ZERO);
+        assert_eq!(t.update(true, t0 + Duration::from_secs(12)), Duration::from_secs(3));
     }
 }

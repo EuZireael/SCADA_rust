@@ -91,6 +91,13 @@ SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094 \
 | `GATEWAY_COMMANDS_MAX_AGE_MS` | `30000` | команда старше — `REJECTED_EXPIRED` |
 | `GATEWAY_SCRIPTS_DIR` / `_TIMEOUT_MS` / `_RELOAD_INTERVAL_MS` | `scripts` / `50` / `5000` | пользовательские Lua-скрипты |
 | `KAFKA_TOPICS_REPLICATION` | `1` | фактор репликации создаваемых топиков |
+| `KAFKA_SECURITY_PROTOCOL` / `KAFKA_SASL_MECHANISM` / `KAFKA_SASL_USERNAME` / `KAFKA_SASL_PASSWORD` | — | TLS и SASL (PLAIN, SCRAM-SHA-256/512): `PLAINTEXT`, `SSL`, `SASL_PLAINTEXT`, `SASL_SSL`; OpenSSL вшит в бинарник |
+| `KAFKA_SSL_CA_LOCATION` / `_CERTIFICATE_LOCATION` / `_KEY_LOCATION` / `_KEY_PASSWORD` | — | сертификаты (в том числе клиентский для mTLS) |
+| `KAFKA_CLIENT_<СВОЙСТВО>` | — | любое свойство librdkafka: `KAFKA_CLIENT_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM=none` → `ssl.endpoint.identification.algorithm`; перекрывает именованные |
+| `SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL` / `_SASL_MECHANISM` / `_SASL_JAAS_CONFIG` | — | как у Java-шлюза (из JAAS берутся `username` и `password`) |
+| `GATEWAY_API_TOKEN` / `GATEWAY_API_TOKEN_FILE` | — | токен REST: `/api/*` требует `Authorization: Bearer <токен>` (без токена — открыт, как раньше; `/actuator/*` открыт всегда) |
+| `GATEWAY_HTTP_BIND` | `0.0.0.0` | адрес HTTP (`127.0.0.1` — только локально) |
+| `GATEWAY_HA_YIELD_AFTER_MS` | `30000` | «слепой» активный (связь потеряна со всеми контроллерами) отдаёт лидерство партнёру; `0` — выключено |
 | `CONTROLLERS_CONFIG` | — | то же, что `CONTROLLERS_YAML` (форма `file:/путь` из Java) |
 | `SERVER_PORT` | `8888` | HTTP |
 | `RUST_LOG` | `info,…` | уровни логов |
@@ -109,7 +116,10 @@ SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094 \
 телеметрию и события и принимает команды; резерв опрашивает контроллеры (горячий) и молчит. Отказ
 активного — переключение за `session-timeout` (≈1,9 с при 2 с; при штатной остановке ≈0,6 с), новый
 активный сразу шлёт все теги. Состояние — `GET /api/ha`, метрика `scada_ha_active`, события
-`HotStandby` в журнале. Команды: ручное назначение партиций и коммит позиции до исполнения
+`HotStandby` в журнале. Активный, потерявший связь со всеми контроллерами (`GATEWAY_HA_YIELD_AFTER_MS`, считается от
+момента, когда связь признана потерянной, — для OPC UA это `GATEWAY_STALE_AFTER_MS`), выходит из
+группы и передаёт лидерство партнёру, если тот в группе, и возвращается резервным; без партнёра
+остаётся активным и шлёт BAD. Команды: ручное назначение партиций и коммит позиции до исполнения
 (at-most-once; команда старше `GATEWAY_COMMANDS_MAX_AGE_MS` не исполняется).
 
 ## Пользовательские скрипты (Lua 5.1)
@@ -153,13 +163,14 @@ SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094 \
 ## Не перенесено
 
 - Режим `recordDevice`/`fields` (в конфиге не используется).
-- JVM-метрики `/actuator/metrics/*`, которые читает `loadtest/run.py` (есть метрики процесса
-  `process_*` в `/actuator/prometheus`) — нагрузочный стенд надо адаптировать.
+- JVM-метрики `/actuator/metrics/*` Java-шлюза; вместо них — метрики Prometheus (`process_*`,
+  `scada_poll_seconds`, `scada_process_seconds`…), нагрузочный стенд — `loadtest/`.
+- Kerberos (SASL GSSAPI) для Kafka: нужна сборка librdkafka с libsasl2.
 - Политики безопасности OPC UA кроме None (у Java на деле тоже только None).
 
 ## Проверено
 
-- 46 юнит-тестов, сверка конфигураций шлюза и симулятора, 7 интеграционных
+- 101 юнит-тест, сверка конфигураций шлюза и симулятора, 12 интеграционных
   (`cargo test -- --ignored`), 40 тестов симулятора (pytest); clippy без замечаний;
   `cargo audit` чистый (одно обоснованное исключение в `.cargo/audit.toml`).
 - Стенд с PLC-симулятором: 2517 тегов GOOD в `scada.tags`, формат байт-в-байт
@@ -173,7 +184,7 @@ SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094 \
 ## Тесты
 
 ```bash
-cargo test                      # 46 юнит-тестов + сверка config ↔ simulator, без внешних систем
+cargo test                      # 101 юнит-тест + сверка config ↔ simulator, без внешних систем
 cargo test -- --ignored         # интеграционные: нужны симулятор и Kafka
 ```
 

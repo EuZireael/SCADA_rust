@@ -106,6 +106,9 @@ async fn run() -> Result<()> {
     };
     let kafka = if settings.kafka.enabled {
         kafka::ensure_topics(&settings.kafka).await;
+        if !settings.kafka.client.0.is_empty() {
+            info!("🔐 Kafka: {}", settings.kafka.client.summary());
+        }
         Some(Arc::new(KafkaOut::new(&settings.kafka, metrics.clone(), leadership.clone())?))
     } else {
         warn!("Kafka выключена (KAFKA_ENABLED=false)");
@@ -153,6 +156,8 @@ async fn run() -> Result<()> {
         settings.gateway.send_bad_frames
     );
     let http_port = settings.http_port;
+    let http_bind = settings.http_bind.clone();
+    let api_protected = settings.api_token.is_some();
     let kafka_settings = settings.kafka.clone();
     let app = Arc::new(App::new(
         settings,
@@ -173,7 +178,14 @@ async fn run() -> Result<()> {
     );
 
     // --- Горячее резервирование: выборы и журнал смены роли ---
-    let elector = ha::spawn(ha_settings, kafka_settings, leadership.clone(), cancel.clone());
+    let blind_app = app.clone();
+    let elector = ha::spawn(
+        ha_settings,
+        kafka_settings,
+        leadership.clone(),
+        Arc::new(move || blind_app.all_links_down()),
+        cancel.clone(),
+    );
     background.spawn(ha::record_events(leadership.clone(), events.clone(), cancel.clone()));
 
     // --- Опрос контроллеров ---
@@ -207,8 +219,12 @@ async fn run() -> Result<()> {
     }
 
     // --- HTTP ---
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", http_port)).await.context("HTTP-порт занят")?;
-    info!("HTTP на :{http_port} (/actuator/health, /actuator/prometheus, /api/events)");
+    let listener = tokio::net::TcpListener::bind((http_bind.as_str(), http_port)).await.context("HTTP-порт занят")?;
+    info!(
+        "HTTP на {}:{http_port} (/actuator/health, /actuator/prometheus, /api/*: {})",
+        http_bind,
+        if api_protected { "по токену" } else { "без токена — задайте GATEWAY_API_TOKEN" }
+    );
     let http_cancel = cancel.clone();
     background.spawn(async move {
         let server =
