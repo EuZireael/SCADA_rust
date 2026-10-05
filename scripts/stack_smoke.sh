@@ -14,12 +14,14 @@
 #
 #   scripts/stack_smoke.sh            # нужны docker compose, curl, python3; порты 5433, 9094, 8888, 4840
 #   KEEP=1 scripts/stack_smoke.sh     # не гасить стенд после теста
+#   GATEWAY_BIN=target/release/scada-gateway scripts/stack_smoke.sh   # шлюз — процессом на хосте (без сборки его образа)
+#   NO_BUILD=1 — вместе с GATEWAY_BIN: образ симулятора не пересобирать (тег $PROJECT-simulator должен существовать)
 # ============================================================================
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PROJECT=${COMPOSE_PROJECT_NAME:-scada-smoke}
-DC=(docker compose -p "$PROJECT" -f docker-compose.yml)
+DC=(docker compose -p "$PROJECT" -f docker-compose.yml ${COMPOSE_OVERRIDE:+-f "$COMPOSE_OVERRIDE"})
 GW=http://localhost:8888
 TAGS_TOPIC=scada.tags
 TAG_RW='Барановичи-1.BN1_MCA1.M_M.M3.M'
@@ -29,11 +31,16 @@ log()  { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 ok()   { printf '   ✓ %s\n' "$*"; }
 fail() { printf '   ✗ %s\n' "$*" >&2; exit 1; }
 
+GW_PID=
+WORK=$(mktemp -d)
 cleanup() {
   status=$?
   if [ "$status" -ne 0 ]; then
-    echo "--- шлюз (последние строки) ---"; "${DC[@]}" logs --tail 60 gateway 2>&1 || true
+    echo "--- шлюз (последние строки) ---"
+    if [ -n "$GW_PID" ]; then tail -60 "$GW_LOG"; else "${DC[@]}" logs --tail 60 gateway 2>&1 || true; fi
   fi
+  [ -z "$GW_PID" ] || kill "$GW_PID" 2>/dev/null || true
+  rm -rf "$WORK"
   [ "${KEEP:-0}" = 1 ] || "${DC[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
   exit "$status"
 }
@@ -65,33 +72,56 @@ kafka_consume() { # <топик> <макс. сообщений> <таймаут 
 }
 
 log "1. Стенд: сборка образов и запуск"
-"${DC[@]}" up -d --build
+if [ -n "${GATEWAY_BIN:-}" ]; then
+  # Шлюз — процесс на хосте (например, когда образ шлюза собрать негде); остальное — в Docker.
+  "${DC[@]}" up -d ${NO_BUILD:+--no-build} kafka postgres simulator
+  until_ok 120 "Kafka и Postgres готовы" bash -c "[ \"\$(docker inspect -f '{{.State.Health.Status}}' scada-rs-kafka)\" = healthy ] && [ \"\$(docker inspect -f '{{.State.Health.Status}}' scada-rs-postgres)\" = healthy ]"
+  GW_LOG=$(mktemp)
+  CONTROLLERS_YAML=config/controllers.yaml SIM_HOST=127.0.0.1 SERVER_PORT=8888 \
+    SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094 \
+    SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5433/scada_db \
+    "$GATEWAY_BIN" >"$GW_LOG" 2>&1 &
+  GW_PID=$!
+else
+  "${DC[@]}" up -d --build
+fi
 until_ok 180 "все контроллеры на связи" controllers_up 3
 ok "шлюз здоров, 3 контроллера UP"
 kafka_up && ok "Kafka: UP" || fail "компонент kafka не UP"
 db_up && ok "БД: UP"
 
 log "   Телеметрия в формате монитора"
-out=$(kafka_consume "$TAGS_TOPIC" "$EXPECTED_TAGS" 45000 --from-beginning || true)
-count=$(printf '%s\n' "$out" | grep -c . || true)
-[ "$count" -ge "$EXPECTED_TAGS" ] || fail "в $TAGS_TOPIC ${count} сообщений, ожидали не меньше $EXPECTED_TAGS"
-printf '%s\n' "$out" | python3 -c '
+# Читаем с запасом: часть тегов успевает прийти дважды (изменение или ранняя полная отправка), уникальных ключей должно быть все.
+out=$(kafka_consume "$TAGS_TOPIC" $((EXPECTED_TAGS * 3)) 30000 --from-beginning || true)
+printf '%s\n' "$out" > "$WORK/tags.txt"
+# Служебные строки консьюмера (если попали в вывод) — не сообщения.
+grep -P '^[^\t]+\t\{' "$WORK/tags.txt" > "$WORK/tags.json" || { printf '%s\n' "$out" | head -3 >&2; fail "в выводе консьюмера нет сообщений вида ключ<TAB>{json}"; }
+python3 - "$WORK/tags.json" "$EXPECTED_TAGS" <<'PY'
 import sys, json, re
 numeric = re.compile(r"^[+-]?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$")
-keys = set(); bad = []
-for line in sys.stdin:
+keys, bad = set(), []
+for line in open(sys.argv[1], encoding="utf-8"):
     line = line.rstrip("\n")
-    if not line: continue
+    if not line:
+        continue
     key, _, body = line.partition("\t")
     msg = json.loads(body)
     keys.add(key)
-    if set(msg) != {"value", "quality", "timestamp"}: bad.append(f"{key}: поля {sorted(msg)}")
-    elif msg["quality"] not in ("GOOD", "BAD", "UNCERTAIN"): bad.append(f"{key}: quality {msg[\"quality\"]}")
-    elif not isinstance(msg["timestamp"], (int, float)) or msg["timestamp"] < 1e9: bad.append(f"{key}: timestamp {msg[\"timestamp\"]}")
-    elif isinstance(msg["value"], float) and not numeric.match(repr(msg["value"]).replace("e+", "e")): bad.append(f"{key}: value {msg[\"value\"]}")
-if bad: sys.exit("нарушения формата: " + "; ".join(bad[:5]))
+    if set(msg) != {"value", "quality", "timestamp"}:
+        bad.append(f"{key}: поля {sorted(msg)}")
+    elif msg["quality"] not in ("GOOD", "BAD", "UNCERTAIN"):
+        bad.append(f"{key}: quality {msg['quality']}")
+    elif not isinstance(msg["timestamp"], (int, float)) or msg["timestamp"] < 1e9:
+        bad.append(f"{key}: timestamp {msg['timestamp']}")
+    elif isinstance(msg["value"], float) and not numeric.match(repr(msg["value"]).replace("e+", "e")):
+        bad.append(f"{key}: value {msg['value']}")
+expected = int(sys.argv[2])
+if len(keys) < expected:
+    sys.exit(f"в топике {len(keys)} разных тегов, ожидали {expected}")
+if bad:
+    sys.exit("нарушения формата: " + "; ".join(bad[:5]))
 print(f"   ✓ {len(keys)} разных тегов, формат {{value, quality, timestamp}} соблюдён")
-'
+PY
 
 log "2. Команда записи через Kafka"
 cmd_id="smoke-$(date +%s)"

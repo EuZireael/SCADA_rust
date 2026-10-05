@@ -145,6 +145,16 @@ jobs:
           echo "=== simulator ==="; tail -50 "$RUNNER_TEMP/simulator.log" || true
           for f in /tmp/scada-gateway-it-*.log; do echo "=== $f ==="; tail -80 "$f"; done || true
 
+  # Стенд целиком (docker-compose.yml: Kafka + Postgres + Rust-симулятор + Rust-шлюз, образы из исходников)
+  # и сбои, которые бывают на объекте: пропал брокер, БД, ПЛК. См. scripts/stack_smoke.sh.
+  stack:
+    name: Stack smoke (docker compose + сбои Kafka, БД, ПЛК)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/stack_smoke.sh
+
   docker:
     name: Build & publish image (GHCR)
     needs: check
@@ -203,7 +213,7 @@ jobs:
   release:
     name: GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [integration, docker]
+    needs: [integration, docker, stack]
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -200,10 +200,13 @@ async fn run() -> Result<()> {
         Arc::new(move || blind_app.all_links_down()),
         cancel.clone(),
     );
-    supervised.push(supervise("ha-events", cancel.clone(), app.metrics.clone(), events.clone(), {
-        let (leadership, events, cancel) = (leadership.clone(), events.clone(), cancel.clone());
-        move || ha::record_events(leadership.clone(), events.clone(), cancel.clone())
-    }));
+    if leadership.is_ha_enabled() {
+        // Без резервирования задачи нет (она сразу выходит) — под надзор её не берём: выход считался бы сбоем.
+        supervised.push(supervise("ha-events", cancel.clone(), app.metrics.clone(), events.clone(), {
+            let (leadership, events, cancel) = (leadership.clone(), events.clone(), cancel.clone());
+            move || ha::record_events(leadership.clone(), events.clone(), cancel.clone())
+        }));
+    }
 
     // --- Опрос контроллеров: каждая задача под надзором (упала — перезапускается) ---
     for handle in &app.controllers {
