@@ -132,7 +132,7 @@ printf '%s|{"commandId":"%s","tagName":"%s","value":1,"requestedBy":"smoke","tim
     --topic scada-commands --property parse.key=true --property 'key.separator=|' >/dev/null
 has_result() { kafka_consume scada-command-results 100 8000 --from-beginning | grep -q "$cmd_id"; }
 until_ok 40 "результат команды $cmd_id" has_result
-res=$(kafka_consume scada-command-results 100 8000 --from-beginning | grep "$cmd_id" | head -1)
+res=$(kafka_consume scada-command-results 100 8000 --from-beginning | grep -m1 "$cmd_id")
 printf '%s' "$res" | grep -q '"status":"APPLIED"' || fail "результат команды не APPLIED: $res"
 ok "команда → APPLIED"
 
