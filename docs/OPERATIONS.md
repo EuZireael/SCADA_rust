@@ -1,0 +1,171 @@
+# Эксплуатация шлюза
+
+Для того, кто разворачивает и сопровождает шлюз. Контракт с монитором — `docs/TELEMETRY_BY_EXCEPTION.md`
+и `docs/MONITOR_INTEGRATION.md`; здесь — настройки, здоровье, метрики и что делает шлюз при сбоях.
+
+## Состав и запуск
+
+Один исполняемый файл (образ `ghcr.io/euzireael/scada_rust`, ~140 МБ, пользователь не root). Нужны
+Kafka и, по желанию, PostgreSQL (журнал событий, история, список каналов для REST). Конфигурация
+контроллеров и тегов — `controllers.yaml` (`CONTROLLERS_YAML`), всё остальное — переменные окружения.
+
+```sh
+docker run -d --name scada-gateway -p 8888:8888 \
+  -v $PWD/controllers.yaml:/app/config/controllers.yaml:ro \
+  -e SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092 \
+  -e SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/scada_db \
+  -e GATEWAY_API_TOKEN_FILE=/run/secrets/gateway_api_token \
+  ghcr.io/euzireael/scada_rust:v0.3.0
+```
+
+Ключи переменных те же, что у Java-шлюза (Spring relaxed binding): и `GATEWAY_PUBLISH_FULL_RESEND_MS`, и
+`GATEWAY_PUBLISH_FULLRESENDMS` работают. Ошибка в конфигурации (нет файла, неизвестная переменная в
+`${…}` без значения по умолчанию, ошибка в скрипте) — шлюз не стартует и пишет, что не так; полуживого
+состояния нет.
+
+## Настройки
+
+### Основные
+
+| Переменная | По умолчанию | Смысл |
+|---|---|---|
+| `CONTROLLERS_YAML` (`CONTROLLERS_CONFIG`) | `config/controllers.yaml` | контроллеры и теги; `${VAR:умолчание}` подставляются, `${VAR}` без значения — ошибка |
+| `SERVER_PORT`, `GATEWAY_HTTP_BIND` | `8888`, `0.0.0.0` | HTTP |
+| `GATEWAY_API_TOKEN` / `GATEWAY_API_TOKEN_FILE` | — | токен Bearer для `/api/*`; без него REST открыт (в журнале предупреждение) |
+| `GATEWAY_SEND_BAD_FRAMES` | `true` | при обрыве связи слать кадр `{"value":null,"quality":"BAD",…}` — монитор по нему показывает «нет данных» |
+| `GATEWAY_ALARMS_ENABLED` | `false` | алармы по `minValue`/`maxValue` тега |
+| `GATEWAY_HEARTBEAT_INTERVAL_MS` | `30000` | событие HEARTBEAT («шлюз жив») |
+| `RUST_LOG` | `info,…` | уровни журнала |
+
+### Телеметрия «по исключению» — `docs/TELEMETRY_BY_EXCEPTION.md`
+
+`GATEWAY_PUBLISH_ENABLED` (`true`), `GATEWAY_PUBLISH_DEADBAND` (0), `GATEWAY_PUBLISH_DEADBAND_PERCENT` (0),
+`GATEWAY_PUBLISH_MIN_INTERVAL_MS` (0), `GATEWAY_PUBLISH_FULL_RESEND_MS` (30000). Монитору
+`runtime.telemetry.max-silence-ms` (40 с) нужно держать **больше** `full-resend-ms`.
+
+### Kafka
+
+| Переменная | По умолчанию | Смысл |
+|---|---|---|
+| `SPRING_KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | брокеры |
+| `KAFKA_TOPICS_TELEMETRY` / `_COMMANDS` / `_COMMAND_RESULTS` / `_EVENTS` / `_ALARMS` | `scada.tags` / `scada-commands` / `scada-command-results` / `scada-events` / `scada-alarms` | топики |
+| `KAFKA_TOPICS_REPLICATION` | `1` | фактор репликации топиков, которые создаёт шлюз (на кластере — по числу брокеров) |
+| `KAFKA_PUBLISH_EVENTS`, `KAFKA_PUBLISH_ALARMS` | `true` | публиковать события и алармы |
+| `KAFKA_SECURITY_PROTOCOL`, `KAFKA_SASL_MECHANISM`, `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD` | — | TLS и SASL (PLAIN, SCRAM-SHA-256/512) |
+| `KAFKA_SSL_CA_LOCATION`, `KAFKA_SSL_CERTIFICATE_LOCATION`, `KAFKA_SSL_KEY_LOCATION`, `KAFKA_SSL_KEY_PASSWORD` | — | сертификаты (в том числе клиентский — mTLS) |
+| `KAFKA_CLIENT_<СВОЙСТВО>` | — | любое свойство librdkafka: `KAFKA_CLIENT_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM=none` |
+| `SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL`, `…_SASL_MECHANISM`, `…_SASL_JAAS_CONFIG` | — | как у Java-шлюза (из JAAS берутся `username` и `password`) |
+
+Пароли в журнал не попадают. Команды читаются группой `scada-gateway-group` с ручным назначением
+партиций; брокеру для горячего резерва нужен `group.min.session.timeout.ms` ≤ `GATEWAY_HA_SESSION_TIMEOUT_MS`.
+
+### База данных
+
+`SPRING_DATASOURCE_URL` (`jdbc:postgresql://localhost:5433/scada_db`), `…_USERNAME`, `…_PASSWORD`; `DB_ENABLED=false` —
+без БД. Схема создаётся и обновляется шлюзом сам (миграции, совместимы со схемой Java-шлюза;
+`pg_advisory_xact_lock` — два экземпляра пары не гоняются). `GATEWAY_PERSIST_TELEMETRY` (`false`) —
+писать историю в таблицу `telemetry`; `GATEWAY_HISTORY_*` — фильтр истории, `GATEWAY_TELEMETRY_RETENTION_HOURS` (72) — срок.
+
+### Опрос и связь
+
+`GATEWAY_OPCUA_OP_TIMEOUT_MS` (5000), `GATEWAY_MODBUS_OP_TIMEOUT_MS` (3000), `GATEWAY_PAC_OP_TIMEOUT_MS` (3000),
+`GATEWAY_STALE_AFTER_MS` (30000 — нет удачных чтений дольше → пересоздать сессию OPC UA и признать связь потерянной).
+Период опроса контроллера — наименьший `pollingRate` его тегов.
+
+### Команды
+
+`GATEWAY_COMMANDS_MAX_AGE_MS` (30000): команда старше (по метке записи Kafka, иначе по `timestamp` в теле)
+не исполняется — `REJECTED_EXPIRED`. Команды исполняются «не более одного раза»: позиция коммитится до
+исполнения, повтор того же `commandId` отбрасывается.
+
+| Статус результата | Когда |
+|---|---|
+| `APPLIED` | записано и подтверждено контроллером |
+| `REJECTED_UNKNOWN_TAG` | такого тега нет |
+| `REJECTED_NOT_WRITABLE` | тег только для чтения (или контроллер не принял запись как неразрешённую) |
+| `REJECTED_TYPE_MISMATCH` | значение не приводится к типу тега / сервер отверг тип |
+| `REJECTED_EXPIRED` | команда ждала дольше `GATEWAY_COMMANDS_MAX_AGE_MS` (шлюз был недоступен) |
+| `FAILED_NO_CONNECTION` | нет связи с контроллером |
+| `FAILED_WRITE` | контроллер ответил отказом |
+
+### Горячее резервирование
+
+Два экземпляра с `GATEWAY_HA_ENABLED=true` и общим Kafka: активный публикует и принимает команды, резерв
+опрашивает контроллеры и молчит. Выборы — группа потребителей на служебном топике `GATEWAY_HA_TOPIC`
+(`scada-gateway-ha`, одна партиция). `GATEWAY_HA_SESSION_TIMEOUT_MS` (6000) — за столько замечается отказ
+активного (на стенде 2000 → переключение ≈ 2 с; штатная остановка — доли секунды),
+`GATEWAY_HA_HEARTBEAT_INTERVAL_MS` (1000), `GATEWAY_HA_INSTANCE_ID`, `GATEWAY_HA_GROUP_ID`.
+`GATEWAY_HA_YIELD_AFTER_MS` (30000): активный, потерявший связь со **всеми** контроллерами дольше, передаёт
+роль партнёру (если тот в группе) и не отбирает её обратно; 0 — выключено. Новый активный сразу
+отправляет значения всех тегов. Состояние — `GET /api/ha`, метрика `scada_ha_active`, события `HA`.
+
+### Скрипты Lua
+
+`GATEWAY_SCRIPTS_DIR` (`scripts`), `GATEWAY_SCRIPTS_TIMEOUT_MS` (50 на вызов), `GATEWAY_SCRIPTS_RELOAD_INTERVAL_MS`
+(5000). См. `config/scripts/scripts.yaml`. Песочница: без файлов, ОС, модулей, `load`, `pcall`, `coroutine`;
+потолок памяти и времени. Ошибка скрипта на значении — кадр BAD по этому тегу; правки подхватываются без
+перезапуска, версия с ошибкой не применяется (остаётся прежняя).
+
+## Здоровье
+
+`GET /actuator/health` (всегда открыт, нужен для healthcheck контейнера) отвечает `200` и
+`{"status":"UP","components":{"db":…,"kafka":…,"controllers":{…}}}`. Статус верхнего уровня `UP`, пока процесс
+обслуживает запросы: потеря БД, брокера или контроллеров не должна перезапускать контейнер (перезапуск
+ничего не починит и сбросит состояние). Состояние смотрите в компонентах: `db` — `UP`/`DOWN`/`DISABLED`,
+`kafka` — `DOWN`, пока последние доставки не удались, `controllers` — связь по каждому контроллеру.
+
+## Метрики Prometheus
+
+`GET /actuator/prometheus` (открыт). Имена, которые были у Java-шлюза, сохранены.
+
+| Метрика | Смысл / на что смотреть |
+|---|---|
+| `scada_telemetry_sent_total`, `scada_telemetry_suppressed_total` | отправлено / подавлено повторов («по исключению») |
+| `scada_kafka_send_errors_total` | недоставленные сообщения; растёт при обрыве брокера |
+| `scada_kafka_resyncs_total` | доставка восстановилась после сбоя — все теги отправлены заново |
+| `scada_controllers_connected` / `_total` | контроллеров на связи / всего |
+| `scada_poll_seconds`, `scada_poll_overruns_total` | цикл опроса; **overruns > 0 — шлюз не успевает за периодом** |
+| `scada_process_seconds` | обработка цикла (скрипты, фильтры, алармы) |
+| `scada_commands_total{status}` | команды по исходу |
+| `scada_task_restarts_total{task}` | **задача шлюза падала и перезапущена** — смотрите журнал и события SYSTEM/ERROR |
+| `scada_db_write_errors_total{kind}`, `scada_db_rows_lost_total{kind}` | БД недоступна: ошибки записи и потерянные строки (events, history) |
+| `scada_events_dropped_total`, `scada_telemetry_rows_dropped_total` | очередь записи переполнена, строки отброшены |
+| `scada_ha_active{instance}` | 1 — активный, 0 — резерв |
+| `scada_script_errors_total{script}`, `scada_scripts_bound_tags` | скрипты |
+
+Рекомендуемые оповещения: `increase(scada_poll_overruns_total[5m]) > 0`; `scada_controllers_connected <
+scada_controllers_total` дольше N минут; `increase(scada_task_restarts_total[10m]) > 0`;
+`increase(scada_kafka_send_errors_total[5m]) > 0`; `increase(scada_db_rows_lost_total[5m]) > 0`;
+`sum(scada_ha_active) != 1` для пары (оба активны или оба в резерве).
+
+## REST (`/api/*`, под токеном, если он задан)
+
+| Путь | Что |
+|---|---|
+| `GET /api/health`, `GET /api/status` | живость, контроллеры, число тегов |
+| `GET /api/ha` | роль экземпляра в паре, группа, с какого момента |
+| `GET /api/scripts` | привязки скриптов, ошибки |
+| `GET /api/events`, `/api/events/type/{type}`, `/api/events/severity/{severity}`, `/api/events/stats` | журнал событий (всегда с `LIMIT`) |
+| `GET /api/events/alarms`, `/api/events/alarms/unacknowledged` | алармы |
+| `POST /api/events/{id}/acknowledge` | квитировать аларм |
+
+## Что шлюз делает при сбоях
+
+| Сбой | Поведение | Как увидеть |
+|---|---|---|
+| Контроллер недоступен | кадр BAD по его тегам, событие `CONNECTION`, переподключение; остальные контроллеры не страдают | `scada_controllers_connected`, health |
+| Все контроллеры недоступны у активного в паре | через `GATEWAY_HA_YIELD_AFTER_MS` роль уходит партнёру | события `HA`, `/api/ha` |
+| Брокер Kafka недоступен | опрос и обработка идут, сообщения копятся в очереди продюсера и теряются через 30 с; когда доставка вернулась, **все теги отправляются заново** (не ждут полной отправки) | health `kafka: DOWN`, `scada_kafka_send_errors_total`, `scada_kafka_resyncs_total` |
+| БД недоступна | телеметрия и команды не страдают; события и история теряются со счётчиком; шлюз подключается к БД сам, когда она вернулась | health `db: DOWN`, `scada_db_rows_lost_total` |
+| Задача шлюза упала (паника) | надзиратель перезапускает её (пауза 1 → 30 с), событие SYSTEM/ERROR | `scada_task_restarts_total` |
+| Процесс убит (`kill -9`) | в паре — резерв активен за `session-timeout`, шлюз без резерва — перезапуск оркестратором | — |
+| Скрипт завис или упал | прерывается лимитом времени, кадр BAD по этому тегу | `scada_script_errors_total` |
+| Мусор вместо ответа PAC (бесконечный Lua, zlib-бомба) | прерывается лимитами памяти/времени/распаковки, связь с контроллером считается потерянной | журнал |
+
+## Обновление с Java-шлюза
+
+Контракты те же: `controllers.yaml`, топики и формат Kafka, статусы команд, переменные окружения, таблицы
+БД (`tags`, `event_log`, `telemetry`; миграции совместимы с Flyway-схемой), `/actuator/*`, имена метрик.
+Отличия — в README («Отличия от Java-шлюза»): `pollingRate` учитывается, кадры BAD включены, история
+выключена по умолчанию, команды старше 30 с отбрасываются, новый статус `REJECTED_EXPIRED`. Порядок:
+остановить Java-шлюз, запустить Rust-шлюз с теми же переменными и `controllers.yaml`; монитор менять не нужно.

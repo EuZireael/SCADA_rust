@@ -1,8 +1,11 @@
 //! События шлюза: журнал event_log в БД + публикация в `scada-events`.
 //!
 //! Источники (опрос, команды, heartbeat) кладут событие в очередь и идут дальше; писатель
-//! в отдельной задаче пачкой вставляет строки в БД и отправляет события в Kafka. Переполнение
-//! очереди — событие отбрасывается со счётчиком, но опрос не ждёт никогда.
+//! в отдельной задаче отправляет события в Kafka и передаёт строки второй задаче, которая пачкой
+//! вставляет их в БД. Задач две намеренно: недоступная БД держит вставку до таймаута пула, и в одной
+//! задаче события в Kafka (смена роли пары, обрыв связи) запаздывали бы или терялись именно тогда,
+//! когда они нужнее всего. Переполнение очередей — строка отбрасывается со счётчиком, но опрос и
+//! Kafka не ждут никогда.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +15,30 @@ use sqlx::PgPool;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
+
+/// Не чаще одного предупреждения в `every` (при недоступной БД сбоев тысячи).
+pub struct Throttle {
+    every: Duration,
+    last: std::sync::Mutex<Option<std::time::Instant>>,
+}
+
+impl Throttle {
+    pub fn new(every: Duration) -> Self {
+        Throttle { every, last: std::sync::Mutex::new(None) }
+    }
+
+    /// true — пора писать в журнал.
+    pub fn ready(&self) -> bool {
+        let mut last = self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let now = std::time::Instant::now();
+        if last.is_none_or(|t| now.duration_since(t) >= self.every) {
+            *last = Some(now);
+            true
+        } else {
+            false
+        }
+    }
+}
 
 use crate::db::{self, EventRow, TelemetryRow};
 use crate::kafka::KafkaOut;
@@ -88,8 +115,17 @@ pub async fn run_writer(
     db: Option<PgPool>,
     kafka: Option<Arc<KafkaOut>>,
     leadership: Arc<Leadership>,
+    metrics: Arc<Metrics>,
     cancel: CancellationToken,
 ) {
+    // БД — отдельной задачей и через ограниченную очередь пачек: см. описание модуля.
+    let (db_tx, db_task) = match db {
+        Some(pool) => {
+            let (tx, db_rx) = mpsc::channel::<Vec<EventRow>>(256);
+            (Some(tx), Some(tokio::spawn(run_event_db_writer(db_rx, pool, metrics.clone()))))
+        }
+        None => (None, None),
+    };
     let mut batch: Vec<Event> = Vec::with_capacity(500);
     loop {
         let closed = tokio::select! {
@@ -120,7 +156,7 @@ pub async fn run_writer(
                 });
             }
         }
-        if let Some(pool) = &db {
+        if let Some(tx) = &db_tx {
             let rows: Vec<EventRow> = batch
                 .iter()
                 .map(|e| EventRow {
@@ -134,13 +170,32 @@ pub async fn run_writer(
                     details: (!e.details.as_object().is_some_and(|m| m.is_empty())).then(|| e.details.to_string()),
                 })
                 .collect();
-            if let Err(err) = db::insert_events(pool, &rows).await {
-                warn!("Журнал: {} событий не записано в БД: {err:#}", rows.len());
+            let lost = rows.len() as u64;
+            if tx.try_send(rows).is_err() {
+                metrics.db_rows_lost.with_label_values(&["events"]).inc_by(lost);
             }
         }
         batch.clear();
         if closed {
-            return;
+            break;
+        }
+    }
+    drop(db_tx);
+    if let Some(task) = db_task {
+        let _ = task.await; // допишет очередь и выйдет, когда писатель закроет канал
+    }
+}
+
+/// Вставка событий в БД. Недоступная БД — потерянные строки со счётчиком, а не остановка шлюза.
+async fn run_event_db_writer(mut rx: mpsc::Receiver<Vec<EventRow>>, pool: PgPool, metrics: Arc<Metrics>) {
+    let throttle = Throttle::new(Duration::from_secs(30));
+    while let Some(rows) = rx.recv().await {
+        if let Err(err) = db::insert_events(&pool, &rows).await {
+            metrics.db_write_errors.with_label_values(&["events"]).inc();
+            metrics.db_rows_lost.with_label_values(&["events"]).inc_by(rows.len() as u64);
+            if throttle.ready() {
+                warn!("Журнал: {} событий не записано в БД: {err:#}", rows.len());
+            }
         }
     }
 }
@@ -172,8 +227,10 @@ pub async fn run_telemetry_writer(
     mut rx: mpsc::Receiver<Vec<TelemetryRow>>,
     pool: PgPool,
     retention: Duration,
+    metrics: Arc<Metrics>,
     cancel: CancellationToken,
 ) {
+    let throttle = Throttle::new(Duration::from_secs(30));
     let mut prune = tokio::time::interval(Duration::from_secs(600));
     loop {
         tokio::select! {
@@ -185,10 +242,28 @@ pub async fn run_telemetry_writer(
             },
             rows = rx.recv() => match rows {
                 Some(rows) => if let Err(e) = db::insert_telemetry(&pool, &rows).await {
-                    warn!("История: {} точек не записано: {e:#}", rows.len());
+                    metrics.db_write_errors.with_label_values(&["history"]).inc();
+                    metrics.db_rows_lost.with_label_values(&["history"]).inc_by(rows.len() as u64);
+                    if throttle.ready() {
+                        warn!("История: {} точек не записано: {e:#}", rows.len());
+                    }
                 },
                 None => return,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn throttle_lets_the_first_through_then_waits() {
+        let t = Throttle::new(Duration::from_millis(80));
+        assert!(t.ready());
+        assert!(!t.ready());
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(t.ready());
     }
 }

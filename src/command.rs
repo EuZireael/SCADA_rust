@@ -204,7 +204,7 @@ impl Dedup {
 
     /// true — дубль в пределах TTL; иначе запоминает id.
     pub fn is_duplicate(&self, id: &str) -> bool {
-        let mut guard = self.seen.lock().expect("mutex dedup");
+        let mut guard = self.seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let (map, order) = &mut *guard;
         let now = Instant::now();
         if map.get(id).is_some_and(|t| now.duration_since(*t) < self.ttl) {

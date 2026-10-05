@@ -5,6 +5,7 @@
 //! метрикой в колбэке. Идемпотентность + acks=all держат порядок значений тега.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -25,8 +26,57 @@ use crate::leadership::{Leadership, RoleChange};
 use crate::messages::{AlarmMessage, CommandMessage, CommandResultMessage, EventMessage, TelemetryMessage};
 use crate::metrics::Metrics;
 
+/// Как часто повторять предупреждение о недоставленных сообщениях (при обрыве брокера их тысячи).
+const WARN_EVERY: Duration = Duration::from_secs(30);
+
+/// Состояние доставки: недоставленное запоминает фильтр публикации («по исключению») как
+/// отправленное, и потребитель не узнал бы значение до полной отправки. Поэтому, как только доставка
+/// после сбоя снова пошла, обработчики сбрасывают фильтры и отправляют все теги заново.
+#[derive(Default)]
+pub struct DeliveryState {
+    failing: AtomicBool,
+    /// Растёт при каждом восстановлении доставки после сбоя.
+    resync_epoch: AtomicU64,
+    /// Момент последнего предупреждения (мс от `epoch_ms`), чтобы не засорять журнал.
+    last_warn_ms: AtomicI64,
+    suppressed: AtomicU64,
+}
+
+impl DeliveryState {
+    /// Сбой: true (и число подавленных до этого предупреждений), если пора написать в журнал.
+    pub(crate) fn record_failure(&self, now_ms: i64) -> Option<u64> {
+        self.failing.store(true, Ordering::Release);
+        let last = self.last_warn_ms.load(Ordering::Relaxed);
+        if last == 0 || now_ms - last >= WARN_EVERY.as_millis() as i64 {
+            self.last_warn_ms.store(now_ms, Ordering::Relaxed);
+            return Some(self.suppressed.swap(0, Ordering::Relaxed));
+        }
+        self.suppressed.fetch_add(1, Ordering::Relaxed);
+        None
+    }
+
+    /// Удачная доставка: true, если до неё был сбой (доставка восстановилась).
+    pub(crate) fn record_success(&self) -> bool {
+        let recovered = self.failing.swap(false, Ordering::AcqRel);
+        if recovered {
+            self.resync_epoch.fetch_add(1, Ordering::AcqRel);
+        }
+        recovered
+    }
+
+    pub fn resync_epoch(&self) -> u64 {
+        self.resync_epoch.load(Ordering::Acquire)
+    }
+
+    /// Доставка идёт (последняя попытка удалась или сбоев ещё не было).
+    pub fn healthy(&self) -> bool {
+        !self.failing.load(Ordering::Acquire)
+    }
+}
+
 struct DeliveryCounter {
     metrics: Arc<Metrics>,
+    state: Arc<DeliveryState>,
 }
 
 impl ClientContext for DeliveryCounter {}
@@ -35,9 +85,27 @@ impl ProducerContext for DeliveryCounter {
     type DeliveryOpaque = ();
 
     fn delivery(&self, result: &DeliveryResult<'_>, _: ()) {
-        if let Err((err, msg)) = result {
-            self.metrics.kafka_send_errors.inc();
-            warn!("Kafka: сообщение в {} не доставлено: {err}", msg.topic());
+        match result {
+            Err((err, msg)) => {
+                self.metrics.kafka_send_errors.inc();
+                if let Some(suppressed) = self.state.record_failure(chrono::Utc::now().timestamp_millis()) {
+                    warn!(
+                        "Kafka: сообщение в {} не доставлено: {err}{}",
+                        msg.topic(),
+                        if suppressed > 0 {
+                            format!(" (ещё {suppressed} с прошлого предупреждения)")
+                        } else {
+                            String::new()
+                        }
+                    );
+                }
+            }
+            Ok(_) => {
+                if self.state.record_success() {
+                    self.metrics.kafka_resyncs.inc();
+                    info!("Kafka: доставка восстановлена — все теги будут отправлены заново");
+                }
+            }
         }
     }
 }
@@ -51,12 +119,14 @@ pub struct KafkaOut {
     metrics: Arc<Metrics>,
     /// Горячий резерв: события и алармы в Kafka шлёт только активный экземпляр.
     leadership: Arc<Leadership>,
+    delivery: Arc<DeliveryState>,
     /// Только для юнит-тестов (`cfg!(test)`): вместо отправки сообщения (топик, ключ, тело) копятся здесь.
     pub captured: std::sync::Mutex<Vec<(String, String, String)>>,
 }
 
 impl KafkaOut {
     pub fn new(settings: &KafkaSettings, metrics: Arc<Metrics>, leadership: Arc<Leadership>) -> Result<Self> {
+        let delivery = Arc::new(DeliveryState::default());
         let producer: ThreadedProducer<DeliveryCounter> = settings
             .client_config()
             .set("client.id", "scada-gateway-rs")
@@ -67,7 +137,7 @@ impl KafkaOut {
             .set("batch.size", "32768")
             // Недоставленное за 30 с считается ошибкой: свежий цикл опроса пришлёт новое значение.
             .set("message.timeout.ms", "30000")
-            .create_with_context(DeliveryCounter { metrics: metrics.clone() })
+            .create_with_context(DeliveryCounter { metrics: metrics.clone(), state: delivery.clone() })
             .context("не создан Kafka-продюсер")?;
         Ok(KafkaOut {
             producer,
@@ -76,6 +146,7 @@ impl KafkaOut {
             publish_alarms: settings.publish_alarms,
             metrics,
             leadership,
+            delivery,
             captured: std::sync::Mutex::new(Vec::new()),
         })
     }
@@ -89,7 +160,7 @@ impl KafkaOut {
             }
         };
         if cfg!(test) {
-            self.captured.lock().expect("mutex").push((
+            self.captured.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((
                 topic.into(),
                 key.into(),
                 String::from_utf8_lossy(&payload).into(),
@@ -98,7 +169,9 @@ impl KafkaOut {
         }
         if let Err((e, _)) = self.producer.send(BaseRecord::to(topic).key(key).payload(&payload)) {
             self.metrics.kafka_send_errors.inc();
-            warn!("Kafka: {topic} не принял сообщение {key}: {e}");
+            if let Some(suppressed) = self.delivery.record_failure(chrono::Utc::now().timestamp_millis()) {
+                warn!("Kafka: {topic} не принял сообщение {key}: {e} (ещё {suppressed} с прошлого предупреждения)");
+            }
         }
     }
 
@@ -121,6 +194,11 @@ impl KafkaOut {
     pub fn send_result(&self, message: &CommandResultMessage) {
         let key = message.tag_name.as_deref().or(message.command_id.as_deref()).unwrap_or("");
         self.send(&self.topics.command_results, key, message);
+    }
+
+    /// Состояние доставки: эпоха повторной отправки и признак «доставка идёт».
+    pub fn delivery(&self) -> &DeliveryState {
+        &self.delivery
     }
 
     /// Дослать очередь при остановке.
@@ -334,6 +412,31 @@ mod tests {
             ("sasl.password", "secret"),
         ]);
         producer(&plain).expect("SASL_PLAINTEXT + PLAIN");
+    }
+
+    #[test]
+    fn delivery_recovery_after_failures_bumps_the_resync_epoch_once() {
+        let d = DeliveryState::default();
+        assert!(d.healthy());
+        assert!(!d.record_success(), "успех без сбоя ничего не меняет");
+        assert_eq!(d.resync_epoch(), 0);
+        d.record_failure(1_000);
+        d.record_failure(2_000);
+        assert!(!d.healthy());
+        assert!(d.record_success(), "первый успех после сбоя — восстановление");
+        assert!(!d.record_success());
+        assert!(d.healthy());
+        assert_eq!(d.resync_epoch(), 1);
+    }
+
+    #[test]
+    fn failure_warnings_are_throttled_and_count_the_skipped() {
+        let d = DeliveryState::default();
+        assert_eq!(d.record_failure(10_000), Some(0), "первое предупреждение — сразу");
+        for t in [10_100, 12_000, 39_000] {
+            assert_eq!(d.record_failure(t), None);
+        }
+        assert_eq!(d.record_failure(40_001), Some(3), "через 30 с — с числом подавленных");
     }
 
     #[test]

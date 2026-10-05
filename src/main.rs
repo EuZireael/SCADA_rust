@@ -25,6 +25,7 @@ use scada_gateway::leadership::Leadership;
 use scada_gateway::metrics::Metrics;
 use scada_gateway::model::Controller;
 use scada_gateway::script::Scripts;
+use scada_gateway::supervisor::supervise;
 
 fn main() -> Result<()> {
     // `scada-gateway healthcheck` — проверка для HEALTHCHECK контейнера без curl в образе.
@@ -116,9 +117,18 @@ async fn run() -> Result<()> {
     };
     let cancel = CancellationToken::new();
     let mut background = JoinSet::new();
+    // Задачи под надзором: упавшая перезапускается (см. supervisor.rs).
+    let mut supervised: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
     let (events, events_rx) = events::channel(metrics.clone());
-    background.spawn(events::run_writer(events_rx, db.clone(), kafka.clone(), leadership.clone(), cancel.clone()));
+    background.spawn(events::run_writer(
+        events_rx,
+        db.clone(),
+        kafka.clone(),
+        leadership.clone(),
+        metrics.clone(),
+        cancel.clone(),
+    ));
 
     // --- Пользовательские скрипты: ошибка при старте — ошибка старта шлюза ---
     let tag_names: Vec<String> = enabled.iter().flat_map(|c| c.tags.iter().map(|t| t.name.clone())).collect();
@@ -129,7 +139,10 @@ async fn run() -> Result<()> {
         metrics.scripts_bound_tags.clone(),
         events.clone(),
     )?;
-    background.spawn(scripts.clone().run_reload(cancel.clone()));
+    supervised.push(supervise("scripts-reload", cancel.clone(), metrics.clone(), events.clone(), {
+        let (scripts, cancel) = (scripts.clone(), cancel.clone());
+        move || scripts.clone().run_reload(cancel.clone())
+    }));
 
     let telemetry_sink = match (&db, settings.gateway.persist_telemetry) {
         (Some(pool), true) => {
@@ -138,6 +151,7 @@ async fn run() -> Result<()> {
                 rx,
                 pool.clone(),
                 settings.gateway.telemetry_retention,
+                metrics.clone(),
                 cancel.clone(),
             ));
             info!(
@@ -186,36 +200,47 @@ async fn run() -> Result<()> {
         Arc::new(move || blind_app.all_links_down()),
         cancel.clone(),
     );
-    background.spawn(ha::record_events(leadership.clone(), events.clone(), cancel.clone()));
+    supervised.push(supervise("ha-events", cancel.clone(), app.metrics.clone(), events.clone(), {
+        let (leadership, events, cancel) = (leadership.clone(), events.clone(), cancel.clone());
+        move || ha::record_events(leadership.clone(), events.clone(), cancel.clone())
+    }));
 
-    // --- Опрос контроллеров ---
-    let mut pollers = JoinSet::new();
+    // --- Опрос контроллеров: каждая задача под надзором (упала — перезапускается) ---
     for handle in &app.controllers {
-        let name = handle.ctrl.name.clone();
-        let fut = poller::run(app.clone(), handle.clone(), cancel.clone());
-        pollers.spawn(async move {
-            fut.await;
-            name
-        });
+        let (app, handle_, cancel_) = (app.clone(), handle.clone(), cancel.clone());
+        supervised.push(supervise(
+            &format!("опрос {}", handle.ctrl.name),
+            cancel.clone(),
+            app.metrics.clone(),
+            events.clone(),
+            move || poller::run(app.clone(), handle_.clone(), cancel_.clone()),
+        ));
     }
-    background.spawn(poller::health_log(app.clone(), cancel.clone()));
-    background.spawn(poller::heartbeat(app.clone(), cancel.clone()));
+    supervised.push(supervise("health-log", cancel.clone(), app.metrics.clone(), events.clone(), {
+        let (app, cancel) = (app.clone(), cancel.clone());
+        move || poller::health_log(app.clone(), cancel.clone())
+    }));
+    supervised.push(supervise("heartbeat", cancel.clone(), app.metrics.clone(), events.clone(), {
+        let (app, cancel) = (app.clone(), cancel.clone());
+        move || poller::heartbeat(app.clone(), cancel.clone())
+    }));
 
     // --- Команды из Kafka ---
     if app.kafka.is_some() {
-        let app_cmd = app.clone();
         let dedup = Arc::new(Dedup::new(Duration::from_secs(60), 1000));
-        let leadership_cmd = leadership.clone();
-        background.spawn(kafka::consume_commands(
-            app.settings.kafka.clone(),
-            leadership_cmd,
-            cancel.clone(),
-            move |cmd, record_ts| {
-                let app = app_cmd.clone();
-                let dedup = dedup.clone();
-                async move { command::handle(&app, &dedup, cmd, record_ts).await }
-            },
-        ));
+        let (app_cmd, leadership_cmd, cancel_cmd) = (app.clone(), leadership.clone(), cancel.clone());
+        supervised.push(supervise("команды", cancel.clone(), app.metrics.clone(), events.clone(), move || {
+            let (app, dedup) = (app_cmd.clone(), dedup.clone());
+            kafka::consume_commands(
+                app.settings.kafka.clone(),
+                leadership_cmd.clone(),
+                cancel_cmd.clone(),
+                move |cmd, record_ts| {
+                    let (app, dedup) = (app.clone(), dedup.clone());
+                    async move { command::handle(&app, &dedup, cmd, record_ts).await }
+                },
+            )
+        }));
     }
 
     // --- HTTP ---
@@ -240,10 +265,8 @@ async fn run() -> Result<()> {
     events.emit(Event::new("SYSTEM", "Gateway", "INFO", "SCADA Gateway shutting down"));
     cancel.cancel();
     let stop = async {
-        while let Some(res) = pollers.join_next().await {
-            if let Ok(name) = &res {
-                info!("Опрос {name} остановлен");
-            }
+        for task in supervised {
+            let _ = task.await;
         }
         while background.join_next().await.is_some() {}
     };

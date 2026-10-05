@@ -67,11 +67,11 @@ impl ControllerHandle {
     }
 
     pub fn opc_connection(&self) -> Option<Arc<OpcConnection>> {
-        self.opc.lock().expect("mutex opc").clone()
+        self.opc.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     pub fn set_opc_connection(&self, conn: Option<Arc<OpcConnection>>) {
-        *self.opc.lock().expect("mutex opc") = conn;
+        *self.opc.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = conn;
     }
 }
 

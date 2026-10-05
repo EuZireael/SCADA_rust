@@ -17,6 +17,12 @@
 //!    `зона = max(deadband, |опубликованное| · deadband_percent / 100)`, при нулевой зоне — любое
 //!    отличие; не числа (строки, bool) — на равенство.
 //!
+//! **Разброс первой полной отправки.** Все теги стартуют в один момент, и без поправки полная отправка
+//! наступала бы для всех сразу — «залп» из десятков тысяч сообщений раз в `full-resend-ms`. Поэтому
+//! первая полная отправка каждого тега наступает через долю периода (своя у каждого тега, см.
+//! [`phase`]), а не через весь период; дальше — как обычно, раз в период с последней публикации.
+//! Это укладывается в контракт («не дольше чем за `full-resend-ms`»): интервал только короче.
+//!
 //! Интервалы считаются по часам шлюза (момент получения значения), а не по метке источника: OPC UA
 //! не двигает метку, пока значение стоит, и полная отправка по ней не наступила бы никогда.
 
@@ -63,6 +69,17 @@ pub struct Last {
     value: Option<TagValue>,
     quality: Quality,
     at: Instant,
+    /// Через сколько после `at` наступает полная отправка (у первой публикации — доля периода).
+    resend_after: Duration,
+}
+
+/// Доля периода полной отправки для первой публикации тега: равномерно по (0.02, 1] и стабильно для
+/// пары (контроллер, номер тега). Золотое сечение даёт низкорасхождение: соседние теги не слипаются.
+pub fn phase(controller: &str, slot: usize) -> f64 {
+    let salt =
+        controller.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+    let unit = ((salt % 10_000) as f64 / 10_000.0 + slot as f64 * 0.618_033_988_749_894_9).fract();
+    0.02 + unit * 0.98
 }
 
 /// Решение по значению. `true` — публиковать; решение сразу запоминается как «опубликовано»
@@ -74,12 +91,25 @@ pub fn decide(
     quality: Quality,
     now: Instant,
 ) -> bool {
+    decide_phased(params, last, value, quality, now, 1.0)
+}
+
+/// То же, но первая полная отправка наступает через `phase` доли периода (см. [`phase`]).
+pub fn decide_phased(
+    params: &FilterParams,
+    last: &mut Option<Last>,
+    value: Option<&TagValue>,
+    quality: Quality,
+    now: Instant,
+    phase: f64,
+) -> bool {
+    let first = last.is_none();
     let publish = match last.as_ref() {
         None => true,                            // 1. первое значение
         Some(l) if l.quality != quality => true, // 2. смена качества
         Some(l) => {
             let elapsed = now.saturating_duration_since(l.at);
-            if !params.max_interval.is_zero() && elapsed >= params.max_interval {
+            if !params.max_interval.is_zero() && elapsed >= l.resend_after {
                 true // 3. полная отправка
             } else if !params.min_interval.is_zero() && elapsed < params.min_interval {
                 false // 4. антидребезг
@@ -89,7 +119,8 @@ pub fn decide(
         }
     };
     if publish {
-        *last = Some(Last { value: value.cloned(), quality, at: now });
+        let resend_after = if first { params.max_interval.mul_f64(phase.clamp(0.0, 1.0)) } else { params.max_interval };
+        *last = Some(Last { value: value.cloned(), quality, at: now, resend_after });
     }
     publish
 }
@@ -130,6 +161,67 @@ mod tests {
     fn run(p: &FilterParams, steps: &[(u64, Option<TagValue>, Quality)]) -> Vec<bool> {
         let (base, mut last) = (T0(), None);
         steps.iter().map(|(ms, v, q)| decide(p, &mut last, v.as_ref(), *q, base + Duration::from_millis(*ms))).collect()
+    }
+
+    #[test]
+    fn first_full_resend_comes_after_the_tag_phase_and_then_every_period() {
+        let p = params(0.0, 0.0, 0, 30_000);
+        let (base, mut last) = (T0(), None);
+        let mut step = |ms: u64| {
+            decide_phased(&p, &mut last, f(1.0).as_ref(), Quality::Good, base + Duration::from_millis(ms), 0.2)
+        };
+        assert!(step(0), "первое значение");
+        assert!(!step(5_000));
+        assert!(step(6_000), "первая полная отправка — через 0.2 периода");
+        assert!(!step(35_000), "дальше — через период от последней публикации");
+        assert!(step(36_000));
+    }
+
+    #[test]
+    fn a_change_resets_the_resend_clock_to_the_full_period() {
+        let p = params(0.0, 0.0, 0, 30_000);
+        let (base, mut last) = (T0(), None);
+        let mut step = |ms: u64, v: f64| {
+            decide_phased(&p, &mut last, f(v).as_ref(), Quality::Good, base + Duration::from_millis(ms), 0.1)
+        };
+        assert!(step(0, 1.0));
+        assert!(step(1_000, 2.0), "изменение");
+        assert!(!step(20_000, 2.0), "после изменения полный период, а не доля");
+        assert!(step(31_000, 2.0));
+    }
+
+    #[test]
+    fn phases_spread_evenly_and_never_exceed_the_period() {
+        let phases: Vec<f64> = (0..10_000).map(|slot| phase("Контроллер-1", slot)).collect();
+        assert!(phases.iter().all(|p| (0.02..=1.0).contains(p)));
+        // 10 равных долей периода: в каждой около десятой части тегов (±15 %).
+        let mut buckets = [0usize; 10];
+        phases.iter().for_each(|p| buckets[((p - 0.02) / 0.98 * 10.0).min(9.0) as usize] += 1);
+        assert!(buckets.iter().all(|&n| (850..=1150).contains(&n)), "{buckets:?}");
+        assert_ne!(phase("A", 5), phase("B", 5), "у разных контроллеров фазы разные");
+        assert_eq!(phase("A", 5), phase("A", 5), "и стабильные");
+    }
+
+    #[test]
+    fn staggered_resend_has_no_burst() {
+        // 20 000 тегов, период 30 с: за каждую секунду первой полной отправки — не больше ~3 % тегов.
+        let p = params(0.0, 0.0, 0, 30_000);
+        let base = T0();
+        let mut states: Vec<Option<Last>> = vec![None; 20_000];
+        let phases: Vec<f64> = (0..20_000).map(|slot| phase("C", slot)).collect();
+        for (st, ph) in states.iter_mut().zip(&phases) {
+            assert!(decide_phased(&p, st, f(1.0).as_ref(), Quality::Good, base, *ph));
+        }
+        let mut worst = 0;
+        for sec in 1..=30u64 {
+            let mut sent = 0;
+            for (st, ph) in states.iter_mut().zip(&phases) {
+                let now = base + Duration::from_secs(sec);
+                sent += usize::from(decide_phased(&p, st, f(1.0).as_ref(), Quality::Good, now, *ph));
+            }
+            worst = worst.max(sent);
+        }
+        assert!(worst < 20_000 * 4 / 100, "в одну секунду ушло {worst} из 20000");
     }
 
     fn f(v: f64) -> Option<TagValue> {
