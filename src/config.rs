@@ -530,7 +530,49 @@ pub fn parse_controllers(yaml: &str) -> Result<Vec<ServerConfig>> {
     for server in file.opcua.servers.iter().filter(|s| s.enabled) {
         server.validate()?;
     }
+    validate_station(&file.opcua.servers)?;
     Ok(file.opcua.servers)
+}
+
+/// Проверка конфигурации в целом (включённые контроллеры): имена контроллеров и тегов уникальны, протокол
+/// контроллера известен. Имя тега — ключ сообщения Kafka и адрес команды: два тега с одним именем делали бы
+/// телеметрию и команды неоднозначными, а контроллер с неизвестным протоколом молча не опрашивался бы.
+pub fn validate_station(servers: &[ServerConfig]) -> Result<()> {
+    let mut problems: Vec<String> = Vec::new();
+    let mut controller_names = std::collections::HashSet::new();
+    let mut tag_owner: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    let mut duplicates: Vec<String> = Vec::new();
+    for server in servers.iter().filter(|s| s.enabled) {
+        if !controller_names.insert(server.name.as_str()) {
+            problems.push(format!("контроллер {:?} описан дважды", server.name));
+        }
+        if crate::model::ControllerKind::from_endpoint(&server.endpoint).is_none() {
+            problems.push(format!(
+                "контроллер {:?}: неизвестный протокол в endpoint {:?} (ожидается opc.tcp://, modbus:// или pac://)",
+                server.name, server.endpoint
+            ));
+        }
+        for tag in server.tags.iter().filter(|t| t.enabled) {
+            if tag.name.trim().is_empty() {
+                problems.push(format!("контроллер {:?}: у включённого тега пустое имя", server.name));
+            } else if let Some(first) = tag_owner.insert(tag.name.as_str(), server.name.as_str()) {
+                duplicates.push(format!("{} ({first} и {})", tag.name, server.name));
+            }
+        }
+    }
+    if !duplicates.is_empty() {
+        problems.push(format!(
+            "имена тегов должны быть уникальны (это ключ Kafka и адрес команды), повторяются {}: {}{}",
+            duplicates.len(),
+            duplicates.iter().take(5).cloned().collect::<Vec<_>>().join("; "),
+            if duplicates.len() > 5 { "; …" } else { "" }
+        ));
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        bail!("конфигурация контроллеров не принята:\n  - {}", problems.join("\n  - "))
+    }
 }
 
 /// Подстановка в стиле Spring: `${NAME:default}` — со значением по умолчанию (пустое `${NAME:}`
@@ -639,6 +681,53 @@ mod tests {
         let err = expand_placeholders("opc.tcp://${PLC_HOST}:${PLC_PORT}", |_| None).unwrap_err().to_string();
         assert!(err.contains("PLC_HOST") && err.contains("PLC_PORT"), "{err}");
         assert_eq!(expand_placeholders("${PLC_HOST}", |_| Some("10.0.0.1".into())).unwrap(), "10.0.0.1");
+    }
+
+    #[test]
+    fn station_validation_rejects_duplicates_and_unknown_protocols() {
+        let tag = |name: &str| format!("{{name: \"{name}\", nodeId: \"ns=2;s=1\", dataType: INT32, enabled: true}}");
+        let server = |name: &str, endpoint: &str, tags: &[&str]| {
+            format!(
+                "    - {{name: \"{name}\", endpoint: \"{endpoint}\", enabled: true, tags: [{}]}}\n",
+                tags.iter().map(|t| tag(t)).collect::<Vec<_>>().join(", ")
+            )
+        };
+        let yaml = |servers: String| format!("opcua:\n  servers:\n{servers}");
+        assert!(
+            parse_controllers(&yaml(
+                server("A", "opc.tcp://h:1", &["x", "y"]) + &server("B", "modbus://h:502", &["z"])
+            ))
+            .is_ok()
+        );
+        let dup_in = parse_controllers(&yaml(server("A", "opc.tcp://h:1", &["x", "x"]))).unwrap_err();
+        assert!(format!("{dup_in:#}").contains("повторяются 1: x"), "{dup_in:#}");
+        let dup_across =
+            parse_controllers(&yaml(server("A", "opc.tcp://h:1", &["x"]) + &server("B", "pac://h:2", &["x"])))
+                .unwrap_err();
+        assert!(format!("{dup_across:#}").contains("(A и B)"), "{dup_across:#}");
+        let same_name =
+            parse_controllers(&yaml(server("A", "opc.tcp://h:1", &["x"]) + &server("A", "opc.tcp://h:2", &["y"])))
+                .unwrap_err();
+        assert!(format!("{same_name:#}").contains("описан дважды"), "{same_name:#}");
+        let proto = parse_controllers(&yaml(server("A", "http://h:1", &["x"]))).unwrap_err();
+        assert!(format!("{proto:#}").contains("неизвестный протокол"), "{proto:#}");
+        // Выключенное в расчёт не идёт: дубль имени в выключенном контроллере и выключенный тег не мешают.
+        let off = "    - {name: \"A\", endpoint: \"opc.tcp://h:1\", enabled: true, tags: [{name: \"x\", nodeId: \"n\", dataType: INT32, enabled: true}, {name: \"x\", nodeId: \"n\", dataType: INT32, enabled: false}]}\n    - {name: \"B\", endpoint: \"junk\", enabled: false, tags: [{name: \"x\", nodeId: \"n\", dataType: INT32, enabled: true}]}\n";
+        assert!(parse_controllers(&yaml(off.to_string())).is_ok());
+    }
+
+    /// Конфигурации из репозитория проходят проверку целиком (имена уникальны, протоколы известны).
+    #[test]
+    fn repository_configs_pass_station_validation() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for (file, tags) in [("config/controllers.yaml", 2517usize), ("config/stations/BN1_MCA1.yaml", 1834)] {
+            let raw = std::fs::read_to_string(root.join(file)).unwrap();
+            let yaml = expand_placeholders(&raw, |_| Some("host".to_string())).unwrap();
+            let servers = parse_controllers(&yaml).unwrap_or_else(|e| panic!("{file}: {e:#}"));
+            let enabled: usize =
+                servers.iter().filter(|s| s.enabled).flat_map(|s| &s.tags).filter(|t| t.enabled).count();
+            assert_eq!(enabled, tags, "{file}");
+        }
     }
 
     #[test]
