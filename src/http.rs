@@ -39,7 +39,7 @@ pub fn router(app: Arc<App>) -> Router {
 async fn require_token(State(app): State<Arc<App>>, req: Request, next: Next) -> Response {
     if let Some(token) = &app.settings.api_token {
         let header = req.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok());
-        if !bearer_matches(header, token) {
+        if !bearer_matches(header, token.expose()) {
             return (StatusCode::UNAUTHORIZED, [(header::WWW_AUTHENTICATE, "Bearer")], "нужен токен доступа\n")
                 .into_response();
         }
@@ -153,8 +153,11 @@ fn no_db() -> Response {
     (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "БД шлюза не подключена"}))).into_response()
 }
 
+/// Ошибка БД: подробности (адрес, SQL) — в журнал, клиенту — только факт.
 fn db_error(e: anyhow::Error) -> Response {
-    (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e:#}")}))).into_response()
+    tracing::error!("REST: ошибка БД: {e:#}");
+    (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "ошибка БД, подробности в журнале шлюза"})))
+        .into_response()
 }
 
 async fn query_events(app: &App, filter: EventFilter<'_>, limit: Option<i64>) -> Response {
@@ -195,13 +198,25 @@ struct AckQuery {
     user_id: String,
 }
 
+/// Длиннее не помещается в `event_log.user_id`.
+const MAX_USER_ID: usize = 255;
+
 async fn acknowledge(State(app): State<Arc<App>>, Path(id): Path<i64>, Query(q): Query<AckQuery>) -> Response {
+    let user = q.user_id.trim();
+    if user.is_empty() || user.chars().count() > MAX_USER_ID {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error": format!("userId: от 1 до {MAX_USER_ID} символов")})))
+            .into_response();
+    }
     let Some(pool) = &app.db else { return no_db() };
-    match db::acknowledge_alarm(pool, id, &q.user_id).await {
-        Ok(_) => {
-            Json(json!({"status": "ACKNOWLEDGED", "message": format!("Alarm {id} acknowledged by {}", q.user_id)}))
-                .into_response()
-        }
+    match db::acknowledge_alarm(pool, id, user).await {
+        Ok(true) => Json(json!({"status": "ACKNOWLEDGED", "message": format!("Alarm {id} acknowledged by {user}")}))
+            .into_response(),
+        // Подтверждать нечего: оператор не должен считать аларм подтверждённым, если строки нет.
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("аларм {id} не найден (подтверждаются только события типа ALARM)")})),
+        )
+            .into_response(),
         Err(e) => db_error(e),
     }
 }

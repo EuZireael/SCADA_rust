@@ -83,7 +83,8 @@ SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094 \
 |---|---|---|
 | `CONTROLLERS_YAML` | `config/controllers.yaml` | контроллеры и теги, `${VAR:default}` подставляются |
 | `SIM_HOST` | `127.0.0.1` | хост контроллеров в endpoint'ах YAML |
-| `SPRING_DATASOURCE_URL` / `DB_URL` | `jdbc:postgresql://localhost:5433/scada_db` | + `…_USERNAME`, `…_PASSWORD` |
+| `SPRING_DATASOURCE_URL` / `DB_URL` | `jdbc:postgresql://localhost:5433/scada_db` | + `…_USERNAME`, `…_PASSWORD`; TLS — `?sslmode=require` в адресе |
+| `DB_SSLMODE` / `DB_SSLROOTCERT` | — | `disable`…`verify-full` и корневой сертификат БД (сильнее адреса); см. `docs/OPERATIONS.md` |
 | `DB_ENABLED` | `true` | `false` — без БД (журнал и история не пишутся) |
 | `SPRING_KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | |
 | `KAFKA_TOPICS_TELEMETRY` … `_COMMAND_RESULTS` | `scada.tags` … `scada-command-results` | как у Java-шлюза |

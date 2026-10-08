@@ -75,7 +75,7 @@ impl PacConnection {
     /// результата PAC (LE16): 0 — применено, иначе команда не выполнилась (соединение при
     /// этом живо). Err — сбой связи.
     pub async fn exec_command(&mut self, device: &str, field: &str, value: &TagValue) -> Result<u16> {
-        let cmd = format!("__{device}:set_cmd('{field}', 1, {})", lua::scalar(value));
+        let cmd = format!("__{device}:set_cmd('{field}', 1, {})", lua::scalar(value)?);
         let result = self.request(CMD_EXEC_DEVICE_COMMAND, cmd.as_bytes()).await?;
         Ok(exec_result_code(&result))
     }

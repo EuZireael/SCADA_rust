@@ -13,6 +13,7 @@ use crate::events::Event;
 use crate::messages::{CommandMessage, CommandResultMessage, command_age_ms};
 use crate::model::{self, Protocol, Quality, TagValue, Timestamp};
 use crate::opcua;
+use crate::pac::lua;
 
 /// Исход команды.
 #[derive(Debug, Clone, PartialEq)]
@@ -52,11 +53,15 @@ impl Outcome {
 
 /// Значение команды (JSON) → значение по типу тега. Строки с числом принимаются.
 pub fn coerce(data_type: &str, value: &Value) -> Result<TagValue, String> {
-    let number = || match value {
-        Value::Number(n) => n.as_f64().ok_or_else(|| format!("{n} не число")),
-        Value::Bool(b) => Ok(if *b { 1.0 } else { 0.0 }),
-        Value::String(s) => s.trim().parse::<f64>().map_err(|_| format!("'{s}' не число")),
-        other => Err(format!("{other} не число")),
+    // Строка "NaN" или "inf" разбирается как число, а в ПЛК нечисловое значение уйти не должно.
+    let number = || {
+        let n = match value {
+            Value::Number(n) => n.as_f64().ok_or_else(|| format!("{n} не число"))?,
+            Value::Bool(b) => f64::from(u8::from(*b)),
+            Value::String(s) => s.trim().parse::<f64>().map_err(|_| format!("'{s}' не число"))?,
+            other => return Err(format!("{other} не число")),
+        };
+        if n.is_finite() { Ok(n) } else { Err(format!("{n} не конечное число")) }
     };
     if model::is_bool(data_type) {
         return match value {
@@ -195,9 +200,9 @@ async fn write_pac(controller: &crate::app::ControllerHandle, w: Write<'_>) -> O
     let (Some(device), Some(field)) = (tag.device_name.as_deref(), tag.field_name.as_deref()) else {
         return Outcome::fail("REJECTED_UNKNOWN_TAG", format!("У PAC-тега нет device/field для команды: {}", tag.name));
     };
-    // В set_cmd значение подставляется в Lua-текст — только число/bool, строк нет.
-    if matches!(value, TagValue::Text(_)) {
-        return Outcome::fail("REJECTED_TYPE_MISMATCH", "PAC принимает только числовые значения");
+    // В set_cmd значение подставляется в Lua-текст — только конечное число или bool, строк нет.
+    if let Err(e) = lua::scalar(&value) {
+        return Outcome::fail("REJECTED_TYPE_MISMATCH", format!("{e}"));
     }
     let mut guard = controller.pac.lock().await;
     let Some(conn) = guard.as_mut() else {
@@ -342,6 +347,11 @@ mod tests {
         assert_eq!(coerce("BOOLEAN", &json!(0)), Ok(TagValue::Bool(false)));
         assert_eq!(coerce("STRING", &json!("REC")), Ok(TagValue::Text("REC".into())));
         assert!(coerce("INT32", &json!("abc")).is_err());
+        for bad in ["NaN", "nan", "inf", "-Infinity"] {
+            for t in ["FLOAT", "INT32", "BOOLEAN"] {
+                assert!(coerce(t, &json!(bad)).is_err(), "{t} {bad}");
+            }
+        }
         assert!(coerce("FLOAT", &json!(null)).is_err());
     }
 

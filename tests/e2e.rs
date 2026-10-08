@@ -159,6 +159,11 @@ async fn gateway_end_to_end() {
                 c.name
             );
         }
+        // Подтверждение несуществующего аларма — не «ACKNOWLEDGED», а 404; пустой userId — 400.
+        let (status, body) = gw.post("/api/events/999999999/acknowledge?userId=it").unwrap();
+        assert_eq!(status, 404, "{body}");
+        let (status, body) = gw.post("/api/events/1/acknowledge?userId=%20").unwrap();
+        assert_eq!(status, 400, "{body}");
         let (_, body) = gw.get("/api/events/type/COMMAND?limit=50").unwrap();
         assert!(serde_json::from_str::<Vec<Value>>(&body).unwrap().len() >= 8, "команды не попали в журнал");
         let (_, body) = gw.get("/api/status").unwrap();

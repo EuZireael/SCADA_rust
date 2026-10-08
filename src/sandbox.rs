@@ -9,6 +9,9 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use mlua::{HookTriggers, Lua, LuaOptions, StdLib, Table, Value, VmState};
 
+/// Начало текста ошибки превышения времени: по нему вызывающий отличает его от прочих ошибок скрипта.
+pub const TIME_LIMIT_MARK: &str = "исполняется дольше лимита";
+
 /// Как часто проверять время (в инструкциях VM).
 const HOOK_EVERY: u32 = 10_000;
 
@@ -58,7 +61,7 @@ pub fn run_limited<R>(lua: &Lua, budget: Duration, f: impl FnOnce() -> mlua::Res
     let deadline = started + budget;
     lua.set_hook(HookTriggers::new().every_nth_instruction(HOOK_EVERY), move |_, _| {
         if Instant::now() > deadline {
-            Err(mlua::Error::runtime(format!("исполняется дольше лимита {} мс", budget.as_millis())))
+            Err(mlua::Error::runtime(format!("{TIME_LIMIT_MARK} {} мс", budget.as_millis())))
         } else {
             Ok(VmState::Continue)
         }
@@ -67,7 +70,7 @@ pub fn run_limited<R>(lua: &Lua, budget: Duration, f: impl FnOnce() -> mlua::Res
     lua.remove_hook();
     match result {
         Ok(_) if started.elapsed() > budget => {
-            Err(mlua::Error::runtime(format!("исполняется дольше лимита {} мс", budget.as_millis())))
+            Err(mlua::Error::runtime(format!("{TIME_LIMIT_MARK} {} мс", budget.as_millis())))
         }
         other => other,
     }

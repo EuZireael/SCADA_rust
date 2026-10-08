@@ -350,7 +350,7 @@ async fn consume_while_active<F, Fut>(
                 let Some(payload) = m.payload() else { continue };
                 match serde_json::from_slice::<CommandMessage>(payload) {
                     Ok(cmd) => handler(cmd, m.timestamp().to_millis()).await,
-                    Err(e) => warn!("Команда не разобрана ({e}): {}", String::from_utf8_lossy(payload)),
+                    Err(e) => warn!("Команда не разобрана ({e}): {}", preview(payload)),
                 }
             }
             Err(e) => {
@@ -358,6 +358,16 @@ async fn consume_while_active<F, Fut>(
                 return;
             }
         }
+    }
+}
+
+/// Начало чужого сообщения для журнала: в топик может прийти что угодно и сколько угодно.
+fn preview(payload: &[u8]) -> String {
+    const MAX_CHARS: usize = 300;
+    let text = String::from_utf8_lossy(payload);
+    match text.char_indices().nth(MAX_CHARS) {
+        Some((end, _)) => format!("{}… (всего {} байт)", text[..end].escape_debug(), payload.len()),
+        None => text.escape_debug().to_string(),
     }
 }
 
@@ -451,6 +461,15 @@ mod tests {
             assert_eq!(d.record_failure(t), None);
         }
         assert_eq!(d.record_failure(40_001), Some(3), "через 30 с — с числом подавленных");
+    }
+
+    #[test]
+    fn foreign_payload_is_cut_and_escaped_in_the_log() {
+        assert_eq!(preview(b"{\"a\":1}"), "{\\\"a\\\":1}");
+        let huge = vec![b'x'; 100_000];
+        let shown = preview(&huge);
+        assert!(shown.chars().count() < 400 && shown.contains("всего 100000 байт"), "{shown}");
+        assert!(!preview(b"a\nb\x1b[31m").contains('\n'), "переводы строк не ломают журнал");
     }
 
     #[test]

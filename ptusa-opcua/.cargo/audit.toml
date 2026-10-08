@@ -1,0 +1,10 @@
+# Настройки cargo audit для OPC UA-фасада ptusa-opcua (CI: .github/workflows/audit.yml).
+[advisories]
+ignore = [
+    # rsa 0.9 (Marvin Attack), приходит с async-opcua; исправленной версии нет. Фасад отдаёт только конечную точку
+    # без защиты (политика None): RSA-расшифровки приватным ключом нет, но крейт в сборке присутствует.
+    "RUSTSEC-2023-0071",
+    # atomic-polyfill — заброшенный крейт, приходит через postcard/heapless серверной части async-opcua. Нужен лишь
+    # микроконтроллерам без атомарных операций; на x86_64/aarch64 не используется.
+    "RUSTSEC-2023-0089",
+]

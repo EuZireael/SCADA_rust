@@ -4,10 +4,30 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
+/// Секрет (пароль, токен): в `Debug` и логах не показывается, значение берут явно через [`Secret::expose`].
+#[derive(Clone, PartialEq, Eq)]
+pub struct Secret(String);
+
+impl Secret {
+    pub fn new(value: String) -> Self {
+        Secret(value)
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Secret(***)")
+    }
+}
+
 /// Токен REST: `GATEWAY_API_TOKEN` или содержимое файла из `GATEWAY_API_TOKEN_FILE` (секреты Docker).
-pub(super) fn api_token() -> Result<Option<String>> {
+pub(super) fn api_token() -> Result<Option<Secret>> {
     if let Some(t) = env_any(&["GATEWAY_API_TOKEN"]) {
-        return Ok(Some(t.trim().to_string()));
+        return Ok(Some(Secret::new(t.trim().to_string())));
     }
     let Some(path) = env_any(&["GATEWAY_API_TOKEN_FILE"]) else { return Ok(None) };
     let token = std::fs::read_to_string(&path).with_context(|| format!("GATEWAY_API_TOKEN_FILE={path}"))?;
@@ -15,7 +35,7 @@ pub(super) fn api_token() -> Result<Option<String>> {
     if token.is_empty() {
         bail!("GATEWAY_API_TOKEN_FILE={path}: файл пуст");
     }
-    Ok(Some(token))
+    Ok(Some(Secret::new(token)))
 }
 
 /// Имя экземпляра по умолчанию — хост и pid (как у Java-шлюза).

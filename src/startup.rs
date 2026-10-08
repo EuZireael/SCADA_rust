@@ -30,6 +30,8 @@ const STOP_TIMEOUT: Duration = Duration::from_secs(8);
 /// Окно дублей команд: повторная доставка того же `commandId` не пишет в ПЛК дважды.
 const DEDUP_TTL: Duration = Duration::from_secs(60);
 const DEDUP_MAX: usize = 1000;
+/// Токен REST короче — предупреждение при запуске.
+const MIN_TOKEN_CHARS: usize = 16;
 
 pub fn init_tracing() {
     tracing_subscriber::fmt()
@@ -215,6 +217,11 @@ pub async fn spawn_http(app: Arc<App>, tasks: &mut Tasks) -> Result<()> {
             "без токена — задайте GATEWAY_API_TOKEN"
         }
     );
+    if app.settings.api_token.as_ref().is_some_and(|t| t.expose().chars().count() < MIN_TOKEN_CHARS) {
+        warn!(
+            "GATEWAY_API_TOKEN короче {MIN_TOKEN_CHARS} символов: токен подбирается; возьмите случайный (openssl rand -hex 24)"
+        );
+    }
     let cancel = tasks.cancel.clone();
     tasks.spawn(async move {
         let server = axum::serve(listener, http::router(app)).with_graceful_shutdown(cancel.cancelled_owned());
