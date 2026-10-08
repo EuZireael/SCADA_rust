@@ -23,5 +23,6 @@ pub mod pac;
 pub mod poller;
 pub mod sandbox;
 pub mod script;
+pub mod startup;
 pub mod supervisor;
 pub mod telemetry;
