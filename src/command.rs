@@ -11,7 +11,7 @@ use tracing::{info, warn};
 use crate::app::{App, TagRef};
 use crate::events::Event;
 use crate::messages::{CommandMessage, CommandResultMessage, command_age_ms};
-use crate::model::{self, Protocol, TagValue, Timestamp};
+use crate::model::{self, Protocol, Quality, TagValue, Timestamp};
 use crate::opcua;
 
 /// Исход команды.
@@ -146,9 +146,27 @@ pub async fn execute(app: &App, cmd: &CommandMessage) -> Outcome {
                     );
                 }
             };
+            let verify = app.settings.gateway.command_verify;
+            let before = if verify.is_zero() { None } else { read_back(&conn, &tag.node_id).await };
             match conn.write(node, variant).await {
                 Ok(status) if status.is_good() => {
                     info!("✍ OPC UA записано {} = {}", tag.name, value);
+                    if let Some(before) = before {
+                        tokio::time::sleep(verify).await;
+                        if let Some(after) = read_back(&conn, &tag.node_id).await
+                            && !same_value(&after, &value)
+                            && same_value(&after, &before)
+                        {
+                            warn!("⚠ {}: запись принята, но значение осталось {after} (записано {value})", tag.name);
+                            return Outcome::fail(
+                                "FAILED_NOT_APPLIED",
+                                format!(
+                                    "Контроллер принял запись, но значение не изменилось: {after} (записано {value}); \
+                                     вероятно, программа не разрешает действие при текущих условиях"
+                                ),
+                            );
+                        }
+                    }
                     Outcome::applied_converted(value, operator_value)
                 }
                 Ok(status) => {
@@ -187,6 +205,25 @@ pub async fn execute(app: &App, cmd: &CommandMessage) -> Outcome {
             }
         }
         Protocol::Modbus => unreachable!("отсечено выше"),
+    }
+}
+
+/// Текущее значение узла для проверки эффекта; ошибка чтения — «неизвестно», команду не портит.
+async fn read_back(conn: &opcua::OpcConnection, node_id: &str) -> Option<TagValue> {
+    let node = opcua::read_value_id(node_id).ok()?;
+    let values = conn.read(&[node]).await.ok()?;
+    let dv = values.first()?;
+    match opcua::reading(dv) {
+        (Some(v), Quality::Good, _) => Some(v),
+        _ => None,
+    }
+}
+
+/// Равенство значений с допуском для вещественных (после округления в ПЛК).
+fn same_value(a: &TagValue, b: &TagValue) -> bool {
+    match (a.as_f64(), b.as_f64()) {
+        (Some(x), Some(y)) => (x - y).abs() <= 1e-6 * x.abs().max(y.abs()).max(1.0),
+        _ => a == b,
     }
 }
 
