@@ -16,7 +16,7 @@ use crate::app::{App, ControllerHandle};
 use crate::events::Event;
 use crate::modbus::{self, ModbusClient};
 use crate::model::{ControllerKind, Protocol, Quality, Reading, Tag, Timestamp};
-use crate::opcua::{self, ConnectOptions, OpcConnection};
+use crate::opcua::{self, ConnectOptions, OpcConnection, ReadValueId};
 use crate::pac::{self, PacConnection};
 use crate::telemetry::{Processor, all_bad};
 
@@ -83,11 +83,11 @@ async fn pause(cancel: &CancellationToken, d: Duration) -> bool {
 
 // ------------------------------------------------------------------------ OPC UA --
 
-async fn run_opcua(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: CancellationToken) {
-    let gw = app.settings.gateway.clone();
+/// Теги OPC UA контроллера с разобранными адресами узлов (тег с неверным адресом пропускается).
+fn opcua_nodes(handle: &ControllerHandle) -> (Vec<Arc<Tag>>, Vec<ReadValueId>) {
     let mut tags = Vec::new();
     let mut nodes = Vec::new();
-    for tag in tags_of(&handle, Protocol::OpcUa) {
+    for tag in tags_of(handle, Protocol::OpcUa) {
         match opcua::read_value_id(&tag.node_id) {
             Ok(n) => {
                 nodes.push(n);
@@ -96,32 +96,134 @@ async fn run_opcua(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancell
             Err(e) => warn!("{}: тег {} пропущен: {e}", handle.ctrl.name, tag.name),
         }
     }
-    let mut processor = Processor::new(app.clone(), handle.clone());
-    let opts = ConnectOptions::for_controller(&handle.ctrl.opc_security, &gw);
-    {
-        let sec = &opts.security;
-        if sec.is_secure() || sec.username.is_some() {
-            info!(
-                "{}: OPC UA {:?}/{:?}{}",
-                handle.ctrl.name,
-                sec.policy,
-                sec.mode,
-                sec.username.as_ref().map(|u| format!(", пользователь {u}")).unwrap_or_default()
-            );
-            if sec.is_secure() && opts.trust_server_certs {
-                warn!(
-                    "{}: GATEWAY_OPCUA_TRUST_SERVER_CERTS — сертификат сервера не проверяется, защищённый канал не защищает от подмены сервера",
-                    handle.ctrl.name
-                );
+    (tags, nodes)
+}
+
+/// Записать в журнал режим защиты канала и предупредить о небезопасных сочетаниях.
+fn log_opcua_security(name: &str, opts: &ConnectOptions) {
+    let sec = &opts.security;
+    if !sec.is_secure() && sec.username.is_none() {
+        return;
+    }
+    info!(
+        "{name}: OPC UA {:?}/{:?}{}",
+        sec.policy,
+        sec.mode,
+        sec.username.as_ref().map(|u| format!(", пользователь {u}")).unwrap_or_default()
+    );
+    if sec.is_secure() && opts.trust_server_certs {
+        warn!(
+            "{name}: GATEWAY_OPCUA_TRUST_SERVER_CERTS — сертификат сервера не проверяется, защищённый канал не защищает от подмены сервера"
+        );
+    }
+    if !sec.is_secure() && sec.username.is_some() {
+        warn!("{name}: логин и пароль OPC UA идут по каналу без защиты (security: None) — задайте политику");
+    }
+}
+
+/// Неудачная попытка подключения: журнал, кадры BAD, при долгой недоступности — линк DOWN.
+fn on_connect_failed(
+    app: &App,
+    handle: &ControllerHandle,
+    processor: &mut Processor,
+    tags: &[Arc<Tag>],
+    fails: u32,
+    e: &anyhow::Error,
+) {
+    // Первая неудача и дальше раз в ~минуту — в журнал: из БД видно «висит давно».
+    if fails == 1 || fails.is_multiple_of(6) {
+        app.events.emit(
+            Event::new(
+                "CONNECTION",
+                "Gateway",
+                "WARNING",
+                format!("Connection to {}: CONNECT_FAILED", handle.ctrl.name),
+            )
+            .controller(handle.ctrl.id)
+            .details(json!({"status": "CONNECT_FAILED", "details": format!("попыток подряд: {fails} — {e:#}")})),
+        );
+    }
+    if fails == 1 {
+        warn!("❌ OPC UA {}: {e:#}", handle.ctrl.name)
+    } else {
+        debug!("OPC UA {}: попытка {fails}: {e:#}", handle.ctrl.name)
+    }
+    // Кадры BAD на каждой попытке, как у Modbus/PAC на каждом цикле: монитор, перезапущенный во время обрыва,
+    // читает топик с конца и иначе не узнал бы, что значения недостоверны.
+    processor.process(&all_bad(tags));
+    if handle.is_stale(app.settings.gateway.stale_after) {
+        app.mark_down(handle, &format!("нет подключения: {e:#}"));
+    }
+}
+
+/// Что делать после цикла чтения.
+enum Cycle {
+    Continue,
+    /// Сессию пересоздать (закрыта или давно нет удачных чтений).
+    Reconnect,
+}
+
+/// Один цикл чтения узлов: обработка значений и состояние линка.
+async fn read_opcua_cycle(
+    app: &App,
+    handle: &ControllerHandle,
+    conn: &OpcConnection,
+    processor: &mut Processor,
+    tags: &[Arc<Tag>],
+    nodes: &[ReadValueId],
+) -> Cycle {
+    if !conn.is_alive() {
+        processor.process(&all_bad(tags));
+        app.mark_down(handle, "сессия OPC UA закрыта");
+        return Cycle::Reconnect;
+    }
+    let _cycle = CycleTimer::start(app, handle);
+    match conn.read(nodes).await {
+        Ok(values) => {
+            let readings: Vec<Reading> = tags
+                .iter()
+                .zip(values.iter())
+                .map(|(tag, dv)| {
+                    let (value, quality, timestamp) = opcua::reading(dv);
+                    Reading { tag: tag.clone(), value, quality, timestamp }
+                })
+                .collect();
+            let good = readings.iter().filter(|r| r.quality == Quality::Good).count();
+            processor.process(&readings);
+            if good > 0 || readings.is_empty() {
+                // Запрос прошёл и хотя бы один узел дал значение → связь есть (BAD у отдельных узлов связь не роняет).
+                app.mark_up(handle);
+            } else {
+                // Все узлы BAD — сервер жив, а данных за ним нет (пропала шина или рантайм ПЛК, у OPC UA-фасада —
+                // связь с прошивкой): значения замерли бы на мониторе при «живой» связи и без строки в журнале,
+                // поэтому это обрыв.
+                let status = values.first().and_then(|dv| dv.status).map(|s| s.to_string()).unwrap_or_default();
+                app.mark_down(handle, &format!("все {} узлов вернули BAD ({status})", readings.len()));
             }
-            if !sec.is_secure() && sec.username.is_some() {
+            Cycle::Continue
+        }
+        Err(e) => {
+            processor.process(&all_bad(tags));
+            app.mark_down(handle, &format!("OPC UA reads failing: {e:#}"));
+            if handle.is_stale(app.settings.gateway.stale_after) {
                 warn!(
-                    "{}: логин и пароль OPC UA идут по каналу без защиты (security: None) — задайте политику",
-                    handle.ctrl.name
+                    "🔄 {}: нет удачных чтений > {} c — пересоздаю сессию",
+                    handle.ctrl.name,
+                    app.settings.gateway.stale_after.as_secs()
                 );
+                return Cycle::Reconnect;
             }
+            Cycle::Continue
         }
     }
+}
+
+async fn run_opcua(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: CancellationToken) {
+    let gw = app.settings.gateway.clone();
+    let (tags, nodes) = opcua_nodes(&handle);
+    let mut processor = Processor::new(app.clone(), handle.clone());
+    let opts = ConnectOptions::for_controller(&handle.ctrl.opc_security, &gw);
+    log_opcua_security(&handle.ctrl.name, &opts);
     let mut fails: u32 = 0;
 
     while !cancel.is_cancelled() {
@@ -129,33 +231,7 @@ async fn run_opcua(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancell
             Ok(c) => Arc::new(c),
             Err(e) => {
                 fails += 1;
-                // Первая неудача и дальше раз в ~минуту — в журнал: из БД видно «висит давно».
-                if fails == 1 || fails.is_multiple_of(6) {
-                    app.events.emit(
-                        Event::new(
-                            "CONNECTION",
-                            "Gateway",
-                            "WARNING",
-                            format!("Connection to {}: CONNECT_FAILED", handle.ctrl.name),
-                        )
-                        .controller(handle.ctrl.id)
-                        .details(
-                            json!({"status": "CONNECT_FAILED", "details": format!("попыток подряд: {fails} — {e:#}")}),
-                        ),
-                    );
-                }
-                if fails == 1 {
-                    warn!("❌ OPC UA {}: {e:#}", handle.ctrl.name)
-                } else {
-                    debug!("OPC UA {}: попытка {fails}: {e:#}", handle.ctrl.name)
-                }
-                // Кадры BAD на каждой попытке, как у Modbus/PAC на каждом цикле: монитор,
-                // перезапущенный во время обрыва, читает топик с конца и иначе не узнал бы,
-                // что значения недостоверны.
-                processor.process(&all_bad(&tags));
-                if handle.is_stale(gw.stale_after) {
-                    app.mark_down(&handle, &format!("нет подключения: {e:#}"));
-                }
+                on_connect_failed(&app, &handle, &mut processor, &tags, fails, &e);
                 if !pause(&cancel, gw.reconnect_interval).await {
                     return;
                 }
@@ -173,49 +249,8 @@ async fn run_opcua(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancell
                 _ = cancel.cancelled() => break,
                 _ = tick.tick() => {}
             }
-            if !conn.is_alive() {
-                processor.process(&all_bad(&tags));
-                app.mark_down(&handle, "сессия OPC UA закрыта");
+            if let Cycle::Reconnect = read_opcua_cycle(&app, &handle, &conn, &mut processor, &tags, &nodes).await {
                 break;
-            }
-            let _cycle = CycleTimer::start(&app, &handle);
-            let result = conn.read(&nodes).await;
-            match result {
-                Ok(values) => {
-                    let readings: Vec<Reading> = tags
-                        .iter()
-                        .zip(values.iter())
-                        .map(|(tag, dv)| {
-                            let (value, quality, timestamp) = opcua::reading(dv);
-                            Reading { tag: tag.clone(), value, quality, timestamp }
-                        })
-                        .collect();
-                    let good = readings.iter().filter(|r| r.quality == Quality::Good).count();
-                    processor.process(&readings);
-                    if good > 0 || readings.is_empty() {
-                        // Запрос прошёл и хотя бы один узел дал значение → связь есть (BAD у отдельных
-                        // узлов связь не роняет).
-                        app.mark_up(&handle);
-                    } else {
-                        // Все узлы BAD — сервер жив, а данных за ним нет (пропала шина или рантайм ПЛК,
-                        // у OPC UA-фасада — связь с прошивкой): значения замерли бы на мониторе при
-                        // «живой» связи и без строки в журнале, поэтому это обрыв.
-                        let status = values.first().and_then(|dv| dv.status).map(|s| s.to_string()).unwrap_or_default();
-                        app.mark_down(&handle, &format!("все {} узлов вернули BAD ({status})", readings.len()));
-                    }
-                }
-                Err(e) => {
-                    processor.process(&all_bad(&tags));
-                    app.mark_down(&handle, &format!("OPC UA reads failing: {e:#}"));
-                    if handle.is_stale(gw.stale_after) {
-                        warn!(
-                            "🔄 {}: нет удачных чтений > {} c — пересоздаю сессию",
-                            handle.ctrl.name,
-                            gw.stale_after.as_secs()
-                        );
-                        break;
-                    }
-                }
             }
         }
         handle.set_opc_connection(None);
