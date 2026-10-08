@@ -16,7 +16,7 @@ rdkafka = { version = "0.39.0", features = ["cmake-build", "ssl-vendored"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["raw_value"] }
 serde_yaml_ng = "0.10.0"
-sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "macros", "chrono"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-native-roots", "postgres", "migrate", "macros", "chrono"] }
 thiserror = "2.0.21"
 tokio = { version = "1.53.1", features = ["full"] }
 tokio-modbus = { version = "0.17.0", default-features = false, features = ["tcp"] }

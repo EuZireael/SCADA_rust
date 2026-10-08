@@ -25,7 +25,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"   # БД стенда с паролем по умолчанию — только с этого хоста
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U scada_user -d scada_db"]
       interval: 5s
@@ -56,7 +56,7 @@ services:
       KAFKA_HEAP_OPTS: "-Xmx512m -Xms512m"
       CLUSTER_ID: scada-rs-cluster-01
     ports:
-      - "9094:9094"
+      - "127.0.0.1:9094:9094"   # Kafka без аутентификации; анонсируется как localhost:9094 — с других хостов не подключиться
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
       interval: 10s

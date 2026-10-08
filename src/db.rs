@@ -10,20 +10,39 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
+use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgSslMode};
 use sqlx::{FromRow, Row};
 use tracing::{info, warn};
 
-use crate::config::DbSettings;
+use crate::config::{DbSettings, DbSsl};
 use crate::model::{Controller, Tag, TagValue};
 
 pub async fn connect(settings: &DbSettings) -> Result<PgPool> {
-    let options = PgConnectOptions::new()
+    let mut options = PgConnectOptions::new()
         .host(&settings.host)
         .port(settings.port)
         .database(&settings.database)
         .username(&settings.username)
-        .password(&settings.password);
+        .password(settings.password.expose())
+        .ssl_mode(match settings.ssl {
+            DbSsl::Disable => PgSslMode::Disable,
+            DbSsl::Allow => PgSslMode::Allow,
+            DbSsl::Prefer => PgSslMode::Prefer,
+            DbSsl::Require => PgSslMode::Require,
+            DbSsl::VerifyCa => PgSslMode::VerifyCa,
+            DbSsl::VerifyFull => PgSslMode::VerifyFull,
+        });
+    if let Some(root) = &settings.ssl_root_cert {
+        options = options.ssl_root_cert(root);
+    }
+    if settings.ssl.is_encrypted() {
+        info!("🔐 БД: канал шифруется (sslmode={:?})", settings.ssl);
+    } else if settings.ssl != DbSsl::Disable {
+        warn!(
+            "БД: TLS по возможности (sslmode={:?}), без проверки сервера; чтобы требовать шифрование — sslmode=require или строже",
+            settings.ssl
+        );
+    }
     let mut attempt = 0;
     loop {
         attempt += 1;
@@ -38,12 +57,26 @@ pub async fn connect(settings: &DbSettings) -> Result<PgPool> {
                 info!("БД {}:{}/{} подключена", settings.host, settings.port, settings.database);
                 return Ok(pool);
             }
-            Err(e) if attempt < 30 => {
+            Err(e) if is_transient(&e) && attempt < 30 => {
                 warn!("БД недоступна (попытка {attempt}/30): {e}");
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
             Err(e) => return Err(e).context("БД недоступна"),
         }
+    }
+}
+
+/// Ошибка, которая может пройти сама: сети нет, сервер ещё стартует. Неверный пароль, непроверяемый
+/// сертификат и подобное повтором не лечатся — их показываем сразу, а не через минуту.
+fn is_transient(e: &sqlx::Error) -> bool {
+    match e {
+        // Ошибка рукопожатия TLS (непроверяемый сертификат) приходит как `Io` с видом `InvalidData`; обрыв, отказ
+        // в соединении и неразрешённое имя — другие виды, и они проходят сами.
+        sqlx::Error::Io(io) => io.kind() != std::io::ErrorKind::InvalidData,
+        sqlx::Error::PoolTimedOut => true,
+        // 57P03 — cannot_connect_now: сервер запускается или восстанавливается.
+        sqlx::Error::Database(d) => d.code().is_some_and(|c| c == "57P03"),
+        _ => false,
     }
 }
 

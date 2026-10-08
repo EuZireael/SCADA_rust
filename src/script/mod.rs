@@ -700,6 +700,40 @@ mod tests {
         });
     }
 
+    /// Зависший скрипт на тысячах каналов не должен тратить `timeout` на каждый канал каждого цикла.
+    #[test]
+    fn hung_script_is_paused_after_repeated_timeouts_and_comes_back() {
+        sandbox::within(30, || {
+            let source = "function process(v, q, ctx) if v > 0 then while true do end end return v end";
+            let script = bound::BoundScript::new(
+                "hang.lua",
+                source,
+                vec![TagGlob::new("*")],
+                &serde_yaml_ng::Value::Null,
+                Duration::from_millis(20),
+            )
+            .unwrap()
+            .with_trip_pause(Duration::from_millis(300));
+            let t = tag(QT, "FLOAT");
+            let call = |v: f64| script.process(&t, Some(&TagValue::F64(v)), Quality::Good, Timestamp::now());
+
+            for _ in 0..3 {
+                assert!(call(1.0).unwrap_err().contains("дольше лимита"), "обычное превышение времени");
+            }
+            // Пауза: значения не доходят до Lua вовсе — даже безобидные, и без траты времени.
+            let t0 = Instant::now();
+            for _ in 0..1000 {
+                assert!(call(0.0).unwrap_err().contains("приостановлен"));
+            }
+            assert!(t0.elapsed() < Duration::from_millis(200), "в паузе вызов не делается: {:?}", t0.elapsed());
+
+            // Пауза вышла — пробный вызов проходит, скрипт снова в строю.
+            std::thread::sleep(Duration::from_millis(350));
+            assert_eq!(call(0.0).unwrap().value, Some(TagValue::F64(0.0)));
+            assert!(call(1.0).unwrap_err().contains("дольше лимита"), "после возврата скрипт исполняется");
+        });
+    }
+
     #[test]
     fn coroutine_cannot_swallow_the_time_limit() {
         let dir = dir_with(

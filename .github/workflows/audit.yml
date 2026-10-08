@@ -12,6 +12,9 @@ on:
     - cron: '0 6 * * 1'        # понедельник, 06:00 UTC
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   audit:
     name: cargo audit (RustSec)
@@ -24,3 +27,9 @@ jobs:
           tool: cargo-audit
       # --deny warnings: заброшенные и отозванные крейты тоже роняют проверку.
       - run: cargo audit --deny warnings
+      # Симулятор и фасад ptusa-opcua — отдельные крейты со своими Cargo.lock; в образ шлюза они не входят, но
+      # собираются в образы стенда и в CI, поэтому их зависимости проверяем так же (исключения — в их .cargo/audit.toml).
+      - run: cargo audit --deny warnings
+        working-directory: simulator
+      - run: cargo audit --deny warnings
+        working-directory: ptusa-opcua

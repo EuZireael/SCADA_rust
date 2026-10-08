@@ -12,6 +12,10 @@ on:
     tags: [ 'v*' ]
   pull_request:
 
+# Токен задач только на чтение; кому нужно больше (публикация образа, Release), просит сам в своей задаче.
+permissions:
+  contents: read
+
 jobs:
   check:
     name: Rust fmt, clippy & test
@@ -139,11 +143,17 @@ jobs:
           cd simulator
           ./target/release/simulator conformance 127.0.0.1 10000 config/replay_config.yaml
 
+      # Отдельный PostgreSQL с TLS и своим УЦ: проверка, что sslmode из адреса БД действует (tests/db_tls.rs).
+      - name: Start PostgreSQL with TLS
+        run: scripts/pg_tls.sh "$RUNNER_TEMP/pg-tls"
+
       - name: Integration tests
         env:
           SIM_HOST: 127.0.0.1
           KAFKA_BOOTSTRAP: localhost:9092
           IT_DATABASE_URL: jdbc:postgresql://localhost:5432/scada_it
+          IT_DATABASE_TLS_URL: jdbc:postgresql://localhost:5434/scada_tls
+          IT_DATABASE_TLS_CA: ${{ runner.temp }}/pg-tls/ca.crt
           # Сессия выборов резервирования: брокер service-контейнера с настройками по умолчанию
           # (любая переменная KAFKA_* отключает его конфиг по умолчанию) принимает не меньше 6 c.
           IT_HA_SESSION_MS: "6000"

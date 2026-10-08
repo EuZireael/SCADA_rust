@@ -24,16 +24,26 @@ pub enum ControllerKind {
 }
 
 impl ControllerKind {
+    /// Тип по началу адреса. По началу, а не по вхождению: хост `pac://modbus-gw:502` — это PAC, а не Modbus.
     pub fn from_endpoint(endpoint: &str) -> Option<Self> {
-        let e = endpoint.to_ascii_lowercase();
-        if e.contains("opc.tcp") {
+        let e = endpoint.trim().to_ascii_lowercase();
+        if e.starts_with("opc.tcp://") {
             Some(Self::OpcUa)
-        } else if e.contains("modbus") {
+        } else if e.starts_with("modbus://") {
             Some(Self::Modbus)
-        } else if e.contains("pac://") {
+        } else if e.starts_with("pac://") {
             Some(Self::Pac)
         } else {
             None
+        }
+    }
+
+    /// Протокол тегов, которые опрашивает контроллер этого типа.
+    pub fn protocol(self) -> Protocol {
+        match self {
+            Self::OpcUa => Protocol::OpcUa,
+            Self::Modbus => Protocol::Modbus,
+            Self::Pac => Protocol::Pac,
         }
     }
 }

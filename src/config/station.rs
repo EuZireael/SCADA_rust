@@ -137,6 +137,7 @@ pub fn validate_station(servers: &[ServerConfig]) -> Result<()> {
                 duplicates.push(format!("{} ({first} и {})", tag.name, server.name));
             }
         }
+        check_tags(server, &mut problems);
     }
     if !duplicates.is_empty() {
         problems.push(format!(
@@ -150,6 +151,65 @@ pub fn validate_station(servers: &[ServerConfig]) -> Result<()> {
         Ok(())
     } else {
         bail!("конфигурация контроллеров не принята:\n  - {}", problems.join("\n  - "))
+    }
+}
+
+/// Допустимый адрес поля PAC: имя прибора или поля, элемент массива `RT_PAR_F[12]`, вложенность `PAR_MAIN[1].P`.
+/// Адрес подставляется в Lua-текст команды `set_cmd`, поэтому кавычки, пробелы и управляющие символы запрещены.
+fn is_pac_identifier(text: &str) -> bool {
+    !text.is_empty() && text.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '[' | ']' | '.'))
+}
+
+/// Проверки тегов одного включённого контроллера: молча не работающий тег хуже отказа запуска.
+fn check_tags(server: &ServerConfig, problems: &mut Vec<String>) {
+    use crate::model::{ControllerKind, Protocol, classify};
+    let Some(kind) = ControllerKind::from_endpoint(&server.endpoint) else { return };
+    let (mut node_ids, mut modbus_units) = (std::collections::HashSet::new(), std::collections::BTreeSet::new());
+    for tag in server.tags.iter().filter(|t| t.enabled && !t.name.trim().is_empty()) {
+        let who = format!("контроллер {:?}, тег {:?}", server.name, tag.name);
+        let protocol = classify(tag.protocol.as_deref().unwrap_or("opcua"), &tag.node_id, tag.modbus_address);
+        // Контроллер опрашивает только теги своего протокола; остальные никогда не читались бы.
+        if protocol != kind.protocol() {
+            problems.push(format!(
+                "{who}: протокол тега {protocol:?} не совпадает с протоколом контроллера {:?} — тег не опрашивался бы",
+                kind.protocol()
+            ));
+            continue;
+        }
+        // Адрес узла — ключ синхронизации с БД: два тега с одним адресом получили бы один id и общую историю.
+        if !node_ids.insert(tag.node_id.as_str()) {
+            problems.push(format!("{who}: nodeId {:?} уже занят другим тегом контроллера", tag.node_id));
+        }
+        match protocol {
+            Protocol::Pac => {
+                for (what, value) in [("deviceName", &tag.device_name), ("fieldName", &tag.field_name)] {
+                    match value.as_deref() {
+                        Some(v) if is_pac_identifier(v) => {}
+                        Some(v) => problems.push(format!(
+                            "{who}: {what} {v:?} содержит недопустимые символы (допустимы буквы, цифры, _ [ ] .)"
+                        )),
+                        None => problems.push(format!("{who}: для PAC-тега не задан {what}")),
+                    }
+                }
+            }
+            Protocol::Modbus => {
+                // Holding-регистры 40001…105536 (адрес в протоколе — 16 бит); за границей адрес молча обрезался бы.
+                let wide = crate::model::is_float(&tag.data_type);
+                match tag.modbus_address {
+                    Some(a) if (40001..=105536 - i32::from(wide)).contains(&a) => {}
+                    Some(a) => problems.push(format!("{who}: modbusAddress {a} вне диапазона 40001…105536")),
+                    None => problems.push(format!("{who}: для Modbus-тега не задан modbusAddress")),
+                }
+                modbus_units.insert(tag.modbus_unit_id.unwrap_or(1));
+            }
+            Protocol::OpcUa => {}
+        }
+    }
+    if modbus_units.len() > 1 {
+        problems.push(format!(
+            "контроллер {:?}: у тегов разные modbusUnitId {modbus_units:?} — шлюз читает контроллер с одним",
+            server.name
+        ));
     }
 }
 

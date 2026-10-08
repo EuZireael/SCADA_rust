@@ -8,7 +8,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::Result;
 
 /// Все настройки процесса.
 #[derive(Debug, Clone)]
@@ -18,21 +18,12 @@ pub struct Settings {
     pub http_bind: String,
     /// Токен доступа к `/api/*` (`GATEWAY_API_TOKEN` или файл `GATEWAY_API_TOKEN_FILE`); `None` — без проверки.
     /// `/actuator/health` и `/actuator/prometheus` токеном не закрываются (проверка контейнера, сбор метрик).
-    pub api_token: Option<String>,
+    pub api_token: Option<Secret>,
     pub controllers_path: PathBuf,
     /// `None` — работа без БД (журнал и история не пишутся, команды только по имени тега).
     pub db: Option<DbSettings>,
     pub kafka: KafkaSettings,
     pub gateway: GatewaySettings,
-}
-
-#[derive(Debug, Clone)]
-pub struct DbSettings {
-    pub host: String,
-    pub port: u16,
-    pub database: String,
-    pub username: String,
-    pub password: String,
 }
 
 #[derive(Debug, Clone)]
@@ -61,11 +52,14 @@ impl KafkaSettings {
 }
 
 mod client_props;
+mod db;
 mod env;
 mod station;
 
 pub use client_props::{ClientProperties, client_properties};
-use env::*;
+pub use db::{DbSettings, DbSsl, JdbcUrl, parse_jdbc_url};
+pub use env::Secret;
+use env::{api_token, default_instance_id, env_any, env_bool, env_ms, env_or, env_parse};
 pub use station::*;
 
 #[derive(Debug, Clone)]
@@ -291,41 +285,6 @@ impl HaSettings {
     }
 }
 
-impl DbSettings {
-    fn from_env() -> Result<Self> {
-        let url = env_any(&["SPRING_DATASOURCE_URL", "DB_URL"])
-            .unwrap_or_else(|| "jdbc:postgresql://localhost:5433/scada_db".into());
-        let (host, port, database) = parse_jdbc_url(&url)?;
-        Ok(DbSettings {
-            host,
-            port,
-            database,
-            username: env_or(&["SPRING_DATASOURCE_USERNAME", "DB_USERNAME"], "scada_user"),
-            password: env_or(&["SPRING_DATASOURCE_PASSWORD", "DB_PASSWORD"], "scada_password"),
-        })
-    }
-}
-
-/// `jdbc:postgresql://host:port/db?params` (или `postgres://…`) → (host, port, db).
-pub fn parse_jdbc_url(url: &str) -> Result<(String, u16, String)> {
-    let rest = url
-        .strip_prefix("jdbc:postgresql://")
-        .or_else(|| url.strip_prefix("postgresql://"))
-        .or_else(|| url.strip_prefix("postgres://"))
-        .with_context(|| format!("неподдерживаемый адрес БД: {url}"))?;
-    let rest = rest.rsplit('@').next().unwrap_or(rest); // user:pass@ в URL не используем
-    let (authority, path) = rest.split_once('/').unwrap_or((rest, "scada_db"));
-    let database = path.split('?').next().unwrap_or("scada_db").to_string();
-    let (host, port) = match authority.rsplit_once(':') {
-        Some((h, p)) => (h.to_string(), p.parse().with_context(|| format!("порт БД: {p}"))?),
-        None => (authority.to_string(), 5432),
-    };
-    if host.is_empty() || database.is_empty() {
-        bail!("неполный адрес БД: {url}");
-    }
-    Ok((host, port, database))
-}
-
 #[cfg(test)]
 mod tests {
     #[test]
@@ -399,11 +358,20 @@ mod tests {
 
     #[test]
     fn station_validation_rejects_duplicates_and_unknown_protocols() {
-        let tag = |name: &str| format!("{{name: \"{name}\", nodeId: \"ns=2;s=1\", dataType: INT32, enabled: true}}");
+        // Тег под протокол контроллера: адрес и поля, которых требует его протокол.
+        let tag = |name: &str, endpoint: &str| match endpoint.split("://").next().unwrap() {
+            "modbus" => format!(
+                "{{name: \"{name}\", nodeId: \"m:{name}\", protocol: modbus, modbusAddress: 40001, dataType: INT32, enabled: true}}"
+            ),
+            "pac" => format!(
+                "{{name: \"{name}\", nodeId: \"p:{name}\", protocol: pac, deviceName: LINE1V0, fieldName: ST, dataType: INT32, enabled: true}}"
+            ),
+            _ => format!("{{name: \"{name}\", nodeId: \"ns=2;s={name}\", dataType: INT32, enabled: true}}"),
+        };
         let server = |name: &str, endpoint: &str, tags: &[&str]| {
             format!(
                 "    - {{name: \"{name}\", endpoint: \"{endpoint}\", enabled: true, tags: [{}]}}\n",
-                tags.iter().map(|t| tag(t)).collect::<Vec<_>>().join(", ")
+                tags.iter().map(|t| tag(t, endpoint)).collect::<Vec<_>>().join(", ")
             )
         };
         let yaml = |servers: String| format!("opcua:\n  servers:\n{servers}");
@@ -493,17 +461,57 @@ opcua:
         assert_eq!(servers[0].tags[1].history, None);
     }
 
+    /// Одна строка YAML с серверами → ошибка проверки (текст) или `None`, если принято.
+    fn rejected(servers: &str) -> Option<String> {
+        parse_controllers(&format!("opcua:\n  servers:\n{servers}")).err().map(|e| format!("{e:#}"))
+    }
+
     #[test]
-    fn jdbc_url_is_parsed() {
-        assert_eq!(
-            parse_jdbc_url("jdbc:postgresql://postgres:5432/scada_db").unwrap(),
-            ("postgres".into(), 5432, "scada_db".into())
-        );
-        assert_eq!(
-            parse_jdbc_url("jdbc:postgresql://localhost/scada_db?ssl=false").unwrap(),
-            ("localhost".into(), 5432, "scada_db".into())
-        );
-        assert!(parse_jdbc_url("mysql://x/y").is_err());
+    fn tags_that_would_silently_not_work_are_rejected_at_start() {
+        let server = |endpoint: &str, tags: &str| {
+            format!("    - {{name: C, endpoint: \"{endpoint}\", enabled: true, tags: [{tags}]}}\n")
+        };
+        let pac = |device: &str, field: &str| {
+            format!(
+                "{{name: t, nodeId: n, protocol: pac, deviceName: \"{device}\", fieldName: \"{field}\", dataType: INT32, enabled: true}}"
+            )
+        };
+        let modbus = |name: &str, addr: i64, unit: u32| {
+            format!(
+                "{{name: {name}, nodeId: m{addr}, protocol: modbus, modbusAddress: {addr}, modbusUnitId: {unit}, dataType: INT32, enabled: true}}"
+            )
+        };
+        // PAC: адрес поля попадает в Lua-текст команды — кавычки и пробелы недопустимы, а без device/field тег всегда BAD.
+        assert_eq!(rejected(&server("pac://h:1", &pac("LINE1V0", "RT_PAR_F[12]"))), None);
+        for (device, field) in [("LINE1V0", "ST', 1, 0); os.exit() --"), ("LINE 1", "ST"), ("", "ST")] {
+            let err = rejected(&server("pac://h:1", &pac(device, field))).expect("отклонён");
+            assert!(err.contains("недопустимые символы") || err.contains("не задан"), "{device:?} {field:?}: {err}");
+        }
+        // Протокол тега совпадает с контроллером: чужой тег никто не опрашивал бы.
+        let err = rejected(&server("opc.tcp://h:1", &modbus("m", 40001, 1))).expect("отклонён");
+        assert!(err.contains("не совпадает с протоколом контроллера"), "{err}");
+        // Два тега с одним адресом получили бы общий id в БД и общую историю.
+        let two = format!("{}, {}", modbus("a", 40001, 1), modbus("b", 40001, 1));
+        let err = rejected(&server("modbus://h:502", &two)).expect("отклонён");
+        assert!(err.contains("уже занят другим тегом"), "{err}");
+        // Modbus: адрес за пределами 16 бит молча обрезался бы до чужого регистра; unit id один на контроллер.
+        assert_eq!(rejected(&server("modbus://h:502", &modbus("a", 105536, 1))), None);
+        for addr in [140001, 40000] {
+            let err = rejected(&server("modbus://h:502", &modbus("a", addr, 1))).expect("отклонён");
+            assert!(err.contains("вне диапазона"), "{addr}: {err}");
+        }
+        let units = format!("{}, {}", modbus("a", 40001, 1), modbus("b", 40002, 2));
+        let err = rejected(&server("modbus://h:502", &units)).expect("отклонён");
+        assert!(err.contains("разные modbusUnitId"), "{err}");
+    }
+
+    #[test]
+    fn endpoint_kind_follows_the_scheme_not_the_host_name() {
+        use crate::model::ControllerKind;
+        assert_eq!(ControllerKind::from_endpoint("pac://modbus-gw:502"), Some(ControllerKind::Pac));
+        assert_eq!(ControllerKind::from_endpoint("opc.tcp://modbus-bridge:4840"), Some(ControllerKind::OpcUa));
+        assert_eq!(ControllerKind::from_endpoint("MODBUS://h"), Some(ControllerKind::Modbus));
+        assert_eq!(ControllerKind::from_endpoint("http://opc.tcp"), None);
     }
 
     #[test]

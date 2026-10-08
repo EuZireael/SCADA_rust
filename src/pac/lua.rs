@@ -115,21 +115,17 @@ fn lua_number_text(n: f64) -> String {
     if n.fract() == 0.0 && n.abs() < 1e15 { format!("{}", n as i64) } else { format!("{n}") }
 }
 
-/// Скалярное значение для set_cmd: bool → 1/0, число — как есть.
-pub fn scalar(value: &TagValue) -> String {
-    match value {
-        TagValue::Bool(b) => {
-            if *b {
-                "1".into()
-            } else {
-                "0".into()
-            }
-        }
+/// Скалярное значение для set_cmd: bool → 1/0, конечное число — как есть. Текст и NaN/inf отклоняются: значение
+/// подставляется прямо в Lua-текст команды, и строка в нём — это код.
+pub fn scalar(value: &TagValue) -> Result<String> {
+    Ok(match value {
+        TagValue::Bool(b) => if *b { "1" } else { "0" }.into(),
         TagValue::Int(i) => i.to_string(),
-        TagValue::F32(f) => f.to_string(),
-        TagValue::F64(f) => f.to_string(),
-        TagValue::Text(s) => s.clone(),
-    }
+        TagValue::F32(f) if f.is_finite() => f.to_string(),
+        TagValue::F64(f) if f.is_finite() => f.to_string(),
+        TagValue::F32(_) | TagValue::F64(_) => anyhow::bail!("PAC принимает только конечные числа"),
+        TagValue::Text(_) => anyhow::bail!("PAC принимает только числовые значения"),
+    })
 }
 
 #[cfg(test)]
@@ -245,9 +241,19 @@ mod tests {
 
     #[test]
     fn scalar_bool_as_number() {
-        assert_eq!(scalar(&TagValue::Bool(true)), "1");
-        assert_eq!(scalar(&TagValue::Bool(false)), "0");
-        assert_eq!(scalar(&TagValue::F64(42.5)), "42.5");
-        assert_eq!(scalar(&TagValue::Int(-3)), "-3");
+        assert_eq!(scalar(&TagValue::Bool(true)).unwrap(), "1");
+        assert_eq!(scalar(&TagValue::Bool(false)).unwrap(), "0");
+        assert_eq!(scalar(&TagValue::F64(42.5)).unwrap(), "42.5");
+        assert_eq!(scalar(&TagValue::Int(-3)).unwrap(), "-3");
+    }
+
+    /// Значение уходит в Lua-текст команды: строка там — код, а NaN/inf — не число.
+    #[test]
+    fn scalar_refuses_what_would_not_be_a_number_in_the_command_text() {
+        assert!(scalar(&TagValue::Text("1); os.exit() --".into())).is_err());
+        for f in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(scalar(&TagValue::F64(f)).is_err());
+        }
+        assert!(scalar(&TagValue::F32(f32::NAN)).is_err());
     }
 }
