@@ -2,7 +2,7 @@
 //!
 //! Цикл: [`PacConnection::connect`] (с приветствием PAC) → handshake (версия/имя) →
 //! [`PacConnection::poll_states`] (снимок всех приборов) → [`PacConnection::read_value`] по
-//! тегам. Запись — [`PacConnection::write_command`]. Первый запрос шлём сразу: ptusa рвёт
+//! тегам. Запись — `exec_command`. Первый запрос шлём сразу: ptusa рвёт
 //! соединение, если после приветствия клиент молчит дольше ~300 мс.
 
 use std::time::Duration;
