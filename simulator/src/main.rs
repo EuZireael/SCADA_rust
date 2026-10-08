@@ -1,10 +1,10 @@
 //! PLC-симулятор для стенда шлюза: OPC UA, Modbus TCP и PAC (driver-master) в одном процессе;
 //! значения тегов проигрываются из 5-суточного архива станции BN1_MCA1.
 //!
-//!   simulator [config/replay_config.yaml]     запуск
+//!   simulator \[config/replay_config.yaml\]     запуск
 //!   simulator healthcheck                     проверка живости (порты Modbus и PAC) для контейнера
-//!   simulator conformance [host] [port] [config]  проверка: PAC ведёт себя при записи как описано в конфигурации
-//!   simulator probe-pac [host] [port]         снимок любого PAC (симулятор, прошивка ptusa): по умолчанию localhost:10000
+//!   simulator conformance \[host\] \[port\] \[config\]  проверка: PAC ведёт себя при записи как описано в конфигурации
+//!   simulator probe-pac \[host\] \[port\]         снимок любого PAC (симулятор, прошивка ptusa): по умолчанию localhost:10000
 //!
 //! Окружение: OPCUA_ENDPOINT (напр. opc.tcp://simulator:4840 — адрес привязки и анонса вместо
 //! конфигурации), MODBUS_PORT, PAC_PORT, RUST_LOG; SIM_OPCUA_USER и SIM_OPCUA_PASSWORD — включить

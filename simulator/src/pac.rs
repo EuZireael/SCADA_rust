@@ -40,7 +40,7 @@ pub const BANNER: &[u8] = b"PAC accept";
 const NET_ID: u8 = b's';
 /// Так помечает успешный ответ ptusa.
 pub const STATUS_OK: u8 = 12;
-/// Драйвер трактует ответ[1] == 7 как ошибку.
+/// Драйвер трактует `ответ[1] == 7` как ошибку.
 const STATUS_ERROR: u8 = 7;
 const REQUEST_HEADER_LEN: usize = 6;
 /// Длина ответа — 2 байта → сжатое тело ≤ 65535 байт.
