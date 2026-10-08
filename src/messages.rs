@@ -17,6 +17,30 @@ pub struct TelemetryMessage<'a> {
     pub timestamp: Timestamp,
 }
 
+impl TelemetryMessage<'_> {
+    /// Тот же JSON, что даёт `serde_json::to_vec`, но в переданный буфер и без промежуточных выделений
+    /// (самый частый путь шлюза: десятки тысяч сообщений в секунду). Байты совпадают — тест ниже.
+    pub fn write_json(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(b"{\"value\":");
+        match self.value {
+            Some(TagValue::Int(i)) => {
+                let _ = std::io::Write::write_fmt(out, format_args!("{i}"));
+            }
+            Some(v) => {
+                if serde_json::to_writer(&mut *out, v).is_err() {
+                    out.extend_from_slice(b"null");
+                }
+            }
+            None => out.extend_from_slice(b"null"),
+        }
+        out.extend_from_slice(b",\"quality\":\"");
+        out.extend_from_slice(self.quality.as_str().as_bytes());
+        out.extend_from_slice(b"\",\"timestamp\":");
+        self.timestamp.write_epoch_seconds(out);
+        out.push(b'}');
+    }
+}
+
 /// Событие → `scada-events`, ключ = eventType.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -118,6 +142,44 @@ mod tests {
             serde_json::to_string(&msg).unwrap(),
             r#"{"value":1.07,"quality":"GOOD","timestamp":1790233762.061208074}"#
         );
+    }
+
+    #[test]
+    fn hand_written_json_is_byte_identical_to_serde() {
+        use chrono::TimeZone;
+        let stamps = [
+            ts(),
+            Timestamp(chrono::Utc.timestamp_opt(1, 5).unwrap()),
+            Timestamp(chrono::Utc.timestamp_opt(1790233762, 999_999_999).unwrap()),
+            Timestamp(chrono::Utc.timestamp_opt(0, 0).unwrap()),
+        ];
+        let values = [
+            None,
+            Some(TagValue::Bool(true)),
+            Some(TagValue::Bool(false)),
+            Some(TagValue::Int(0)),
+            Some(TagValue::Int(-42)),
+            Some(TagValue::Int(i64::MAX)),
+            Some(TagValue::F32(64.7)),
+            Some(TagValue::F32(-0.0)),
+            Some(TagValue::F32(f32::NAN)),
+            Some(TagValue::F32(1.0e-7)),
+            Some(TagValue::F64(1.0e21)),
+            Some(TagValue::F64(f64::INFINITY)),
+            Some(TagValue::F64(0.1)),
+            Some(TagValue::Text("строка \"с\" кавычками\n и \\ слэшем".into())),
+            Some(TagValue::Text(String::new())),
+        ];
+        for value in &values {
+            for quality in [Quality::Good, Quality::Bad] {
+                for timestamp in stamps {
+                    let msg = TelemetryMessage { value: value.as_ref(), quality, timestamp };
+                    let mut mine = Vec::new();
+                    msg.write_json(&mut mine);
+                    assert_eq!(String::from_utf8(mine).unwrap(), serde_json::to_string(&msg).unwrap(), "{value:?}");
+                }
+            }
+        }
     }
 
     #[test]
