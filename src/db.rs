@@ -15,7 +15,7 @@ use sqlx::{FromRow, Row};
 use tracing::{info, warn};
 
 use crate::config::DbSettings;
-use crate::model::{Controller, TagValue};
+use crate::model::{Controller, Tag, TagValue};
 
 pub async fn connect(settings: &DbSettings) -> Result<PgPool> {
     let options = PgConnectOptions::new()
@@ -56,101 +56,10 @@ pub async fn sync_config(pool: &PgPool, controllers: &mut [Controller], all_yaml
     // бы одни и те же контроллеры (нарушение UNIQUE → падение старта). Второй ждёт первого и видит
     // готовые строки. Блокировка снимается с концом транзакции.
     sqlx::query("SELECT pg_advisory_xact_lock(hashtext('scada-gateway:config-sync'))").execute(&mut *tx).await?;
-    let (mut created, mut updated, mut deleted) = (0, 0, 0);
+    let mut counts = SyncCounts::default();
     for ctrl in controllers.iter_mut() {
-        let row = sqlx::query(
-            "INSERT INTO controllers (name, endpoint, enabled, created_at, updated_at)
-             VALUES ($1, $2, $3, now(), now())
-             ON CONFLICT (name) DO UPDATE SET endpoint = EXCLUDED.endpoint, enabled = EXCLUDED.enabled, updated_at = now()
-             RETURNING id",
-        )
-        .bind(&ctrl.name)
-        .bind(&ctrl.endpoint)
-        .bind(ctrl.enabled)
-        .fetch_one(&mut *tx)
-        .await
-        .with_context(|| format!("контроллер {}", ctrl.name))?;
-        ctrl.id = row.get("id");
-
-        let existing: HashMap<String, i64> = sqlx::query("SELECT id, node_id FROM tags WHERE controller_id = $1")
-            .bind(ctrl.id)
-            .fetch_all(&mut *tx)
-            .await?
-            .into_iter()
-            .map(|r| (r.get::<String, _>("node_id"), r.get::<i64, _>("id")))
-            .collect();
-        let mut seen = Vec::with_capacity(ctrl.tags.len());
-        for tag in ctrl.tags.iter_mut() {
-            let t = std::sync::Arc::make_mut(tag);
-            let id = match existing.get(&t.node_id) {
-                Some(&id) => {
-                    updated += 1;
-                    sqlx::query(
-                        "UPDATE tags SET name=$2, data_type=$3, polling_rate=$4, unit=$5, enabled=$6, min_value=$7,
-                         max_value=$8, channel_id=$9, device_name=$10, field_name=$11, device_type=$12, protocol=$13,
-                         modbus_address=$14, modbus_type=$15, modbus_unit_id=$16, writable=$17,
-                         history_deadband=$18, history_deadband_percent=$19, history_min_interval_ms=$20,
-                         history_max_interval_ms=$21, updated_at=now()
-                         WHERE id=$1",
-                    )
-                    .bind(id)
-                    .bind(&t.name)
-                    .bind(&t.data_type)
-                    .bind(t.polling_rate_ms as i64)
-                    .bind(&t.unit)
-                    .bind(t.enabled)
-                    .bind(t.min_value)
-                    .bind(t.max_value)
-                    .bind(t.channel_id)
-                    .bind(&t.device_name)
-                    .bind(&t.field_name)
-                    .bind(&t.device_type)
-                    .bind(&t.protocol_raw)
-                    .bind(t.modbus_address)
-                    .bind(&t.modbus_type)
-                    .bind(t.modbus_unit_id as i32)
-                    .bind(t.writable)
-                    .bind(t.history.deadband)
-                    .bind(t.history.deadband_percent)
-                    .bind(t.history.min_interval_ms.map(|v| v as i64))
-                    .bind(t.history.max_interval_ms.map(|v| v as i64))
-                    .execute(&mut *tx)
-                    .await?;
-                    id
-                }
-                None => {
-                    created += 1;
-                    sqlx::query(
-                        "INSERT INTO tags (controller_id, node_id, name, data_type, polling_rate, unit, enabled, min_value,
-                         max_value, channel_id, device_name, field_name, device_type, protocol, modbus_address,
-                         modbus_type, modbus_unit_id, writable, record_device, history_deadband,
-                         history_deadband_percent, history_min_interval_ms, history_max_interval_ms,
-                         created_at, updated_at)
-                         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,false,$19,$20,$21,$22,now(),now())
-                         RETURNING id",
-                    )
-                    .bind(ctrl.id).bind(&t.node_id)
-                    .bind(&t.name).bind(&t.data_type).bind(t.polling_rate_ms as i64).bind(&t.unit).bind(t.enabled)
-                    .bind(t.min_value).bind(t.max_value).bind(t.channel_id).bind(&t.device_name)
-                    .bind(&t.field_name).bind(&t.device_type).bind(&t.protocol_raw).bind(t.modbus_address)
-                    .bind(&t.modbus_type).bind(t.modbus_unit_id as i32).bind(t.writable)
-                    .bind(t.history.deadband).bind(t.history.deadband_percent)
-                    .bind(t.history.min_interval_ms.map(|v| v as i64))
-                    .bind(t.history.max_interval_ms.map(|v| v as i64))
-                    .fetch_one(&mut *tx)
-                    .await?
-                    .get("id")
-                }
-            };
-            t.id = id;
-            seen.push(t.node_id.clone());
-        }
-        let stale = sqlx::query("DELETE FROM tags WHERE controller_id = $1 AND NOT (node_id = ANY($2))")
-            .bind(ctrl.id)
-            .bind(&seen)
-            .execute(&mut *tx)
-            .await?;
-        deleted += stale.rows_affected();
+        ctrl.id = upsert_controller(&mut tx, ctrl).await?;
+        sync_tags(&mut tx, ctrl, &mut counts).await?;
     }
     // Контроллеры, которых больше нет в YAML (выключенные в YAML остаются), — вместе с тегами.
     let gone =
@@ -161,10 +70,144 @@ pub async fn sync_config(pool: &PgPool, controllers: &mut [Controller], all_yaml
     sqlx::query("DELETE FROM controllers WHERE NOT (name = ANY($1))").bind(all_yaml_names).execute(&mut *tx).await?;
     tx.commit().await?;
     info!(
-        "Синхронизация с YAML: тегов создано {created}, обновлено {updated}, удалено {}",
-        deleted + gone.rows_affected()
+        "Синхронизация с YAML: тегов создано {}, обновлено {}, удалено {}",
+        counts.created,
+        counts.updated,
+        counts.deleted + gone.rows_affected()
     );
     Ok(())
+}
+
+#[derive(Default)]
+struct SyncCounts {
+    created: u64,
+    updated: u64,
+    deleted: u64,
+}
+
+type Tx<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
+
+/// Контроллер по имени: вставить или обновить; id из БД.
+async fn upsert_controller(tx: &mut Tx<'_>, ctrl: &Controller) -> Result<i64> {
+    let row = sqlx::query(
+        "INSERT INTO controllers (name, endpoint, enabled, created_at, updated_at)
+         VALUES ($1, $2, $3, now(), now())
+         ON CONFLICT (name) DO UPDATE SET endpoint = EXCLUDED.endpoint, enabled = EXCLUDED.enabled, updated_at = now()
+         RETURNING id",
+    )
+    .bind(&ctrl.name)
+    .bind(&ctrl.endpoint)
+    .bind(ctrl.enabled)
+    .fetch_one(&mut **tx)
+    .await
+    .with_context(|| format!("контроллер {}", ctrl.name))?;
+    Ok(row.get("id"))
+}
+
+/// Теги контроллера: существующие (по nodeId) обновить, новые вставить, пропавшие из YAML удалить; id — в теги.
+async fn sync_tags(tx: &mut Tx<'_>, ctrl: &mut Controller, counts: &mut SyncCounts) -> Result<()> {
+    let existing: HashMap<String, i64> = sqlx::query("SELECT id, node_id FROM tags WHERE controller_id = $1")
+        .bind(ctrl.id)
+        .fetch_all(&mut **tx)
+        .await?
+        .into_iter()
+        .map(|r| (r.get::<String, _>("node_id"), r.get::<i64, _>("id")))
+        .collect();
+    let mut seen = Vec::with_capacity(ctrl.tags.len());
+    for tag in ctrl.tags.iter_mut() {
+        let t = std::sync::Arc::make_mut(tag);
+        t.id = match existing.get(&t.node_id) {
+            Some(&id) => {
+                counts.updated += 1;
+                update_tag(tx, id, t).await?;
+                id
+            }
+            None => {
+                counts.created += 1;
+                insert_tag(tx, ctrl.id, t).await?
+            }
+        };
+        seen.push(t.node_id.clone());
+    }
+    let stale = sqlx::query("DELETE FROM tags WHERE controller_id = $1 AND NOT (node_id = ANY($2))")
+        .bind(ctrl.id)
+        .bind(&seen)
+        .execute(&mut **tx)
+        .await?;
+    counts.deleted += stale.rows_affected();
+    Ok(())
+}
+
+async fn update_tag(tx: &mut Tx<'_>, id: i64, t: &Tag) -> Result<()> {
+    sqlx::query(
+        "UPDATE tags SET name=$2, data_type=$3, polling_rate=$4, unit=$5, enabled=$6, min_value=$7,
+         max_value=$8, channel_id=$9, device_name=$10, field_name=$11, device_type=$12, protocol=$13,
+         modbus_address=$14, modbus_type=$15, modbus_unit_id=$16, writable=$17,
+         history_deadband=$18, history_deadband_percent=$19, history_min_interval_ms=$20,
+         history_max_interval_ms=$21, updated_at=now()
+         WHERE id=$1",
+    )
+    .bind(id)
+    .bind(&t.name)
+    .bind(&t.data_type)
+    .bind(t.polling_rate_ms as i64)
+    .bind(&t.unit)
+    .bind(t.enabled)
+    .bind(t.min_value)
+    .bind(t.max_value)
+    .bind(t.channel_id)
+    .bind(&t.device_name)
+    .bind(&t.field_name)
+    .bind(&t.device_type)
+    .bind(&t.protocol_raw)
+    .bind(t.modbus_address)
+    .bind(&t.modbus_type)
+    .bind(t.modbus_unit_id as i32)
+    .bind(t.writable)
+    .bind(t.history.deadband)
+    .bind(t.history.deadband_percent)
+    .bind(t.history.min_interval_ms.map(|v| v as i64))
+    .bind(t.history.max_interval_ms.map(|v| v as i64))
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn insert_tag(tx: &mut Tx<'_>, controller_id: i64, t: &Tag) -> Result<i64> {
+    let row = sqlx::query(
+        "INSERT INTO tags (controller_id, node_id, name, data_type, polling_rate, unit, enabled, min_value,
+         max_value, channel_id, device_name, field_name, device_type, protocol, modbus_address,
+         modbus_type, modbus_unit_id, writable, record_device, history_deadband,
+         history_deadband_percent, history_min_interval_ms, history_max_interval_ms,
+         created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,false,$19,$20,$21,$22,now(),now())
+         RETURNING id",
+    )
+    .bind(controller_id)
+    .bind(&t.node_id)
+    .bind(&t.name)
+    .bind(&t.data_type)
+    .bind(t.polling_rate_ms as i64)
+    .bind(&t.unit)
+    .bind(t.enabled)
+    .bind(t.min_value)
+    .bind(t.max_value)
+    .bind(t.channel_id)
+    .bind(&t.device_name)
+    .bind(&t.field_name)
+    .bind(&t.device_type)
+    .bind(&t.protocol_raw)
+    .bind(t.modbus_address)
+    .bind(&t.modbus_type)
+    .bind(t.modbus_unit_id as i32)
+    .bind(t.writable)
+    .bind(t.history.deadband)
+    .bind(t.history.deadband_percent)
+    .bind(t.history.min_interval_ms.map(|v| v as i64))
+    .bind(t.history.max_interval_ms.map(|v| v as i64))
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(row.get("id"))
 }
 
 // ------------------------------------------------------------------- журнал событий --

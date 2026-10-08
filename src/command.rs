@@ -130,81 +130,89 @@ pub async fn execute(app: &App, cmd: &CommandMessage) -> Outcome {
     // Оператору — его значение; в ПЛК ушло пересчитанное скриптом.
     let operator_value = if scripted { coerce(data_type, &cmd.value).ok() } else { None };
 
+    let write = Write { tag: &tag, data_type, value, operator_value };
     match tag.protocol {
-        Protocol::OpcUa => {
-            let Some(conn) = controller.opc_connection() else {
-                return Outcome::fail("FAILED_NO_CONNECTION", "Контроллер не подключён");
-            };
-            let prepared =
-                opcua::parse_node_id(&tag.node_id).and_then(|n| Ok((n, opcua::to_variant(data_type, &value)?)));
-            let (node, variant) = match prepared {
-                Ok(p) => p,
-                Err(e) => {
+        Protocol::OpcUa => write_opcua(app, &controller, write).await,
+        Protocol::Pac => write_pac(&controller, write).await,
+        Protocol::Modbus => unreachable!("отсечено выше"),
+    }
+}
+
+/// Приведённая к типу тега команда, готовая к записи в ПЛК.
+struct Write<'a> {
+    tag: &'a model::Tag,
+    data_type: &'a str,
+    /// В ПЛК.
+    value: TagValue,
+    /// Что видит оператор, если скрипт канала пересчитал значение.
+    operator_value: Option<TagValue>,
+}
+
+/// Запись по OPC UA; при `GATEWAY_COMMANDS_VERIFY_MS` — с проверкой эффекта.
+async fn write_opcua(app: &App, controller: &crate::app::ControllerHandle, w: Write<'_>) -> Outcome {
+    let Write { tag, data_type, value, operator_value } = w;
+    let Some(conn) = controller.opc_connection() else {
+        return Outcome::fail("FAILED_NO_CONNECTION", "Контроллер не подключён");
+    };
+    let prepared = opcua::parse_node_id(&tag.node_id).and_then(|n| Ok((n, opcua::to_variant(data_type, &value)?)));
+    let (node, variant) = match prepared {
+        Ok(p) => p,
+        Err(e) => {
+            return Outcome::fail("REJECTED_TYPE_MISMATCH", format!("Значение не приводится к типу тега: {e:#}"));
+        }
+    };
+    let verify = app.settings.gateway.command_verify;
+    let before = if verify.is_zero() { None } else { read_back(&conn, &tag.node_id).await };
+    match conn.write(node, variant).await {
+        Ok(status) if status.is_good() => {
+            info!("✍ OPC UA записано {} = {}", tag.name, value);
+            if let Some(before) = before {
+                tokio::time::sleep(verify).await;
+                if let Some(after) = read_back(&conn, &tag.node_id).await
+                    && !same_value(&after, &value)
+                    && same_value(&after, &before)
+                {
+                    warn!("⚠ {}: запись принята, но значение осталось {after} (записано {value})", tag.name);
                     return Outcome::fail(
-                        "REJECTED_TYPE_MISMATCH",
-                        format!("Значение не приводится к типу тега: {e:#}"),
+                        "FAILED_NOT_APPLIED",
+                        format!(
+                            "Контроллер принял запись, но значение не изменилось: {after} (записано {value}); \
+                             вероятно, программа не разрешает действие при текущих условиях"
+                        ),
                     );
                 }
-            };
-            let verify = app.settings.gateway.command_verify;
-            let before = if verify.is_zero() { None } else { read_back(&conn, &tag.node_id).await };
-            match conn.write(node, variant).await {
-                Ok(status) if status.is_good() => {
-                    info!("✍ OPC UA записано {} = {}", tag.name, value);
-                    if let Some(before) = before {
-                        tokio::time::sleep(verify).await;
-                        if let Some(after) = read_back(&conn, &tag.node_id).await
-                            && !same_value(&after, &value)
-                            && same_value(&after, &before)
-                        {
-                            warn!("⚠ {}: запись принята, но значение осталось {after} (записано {value})", tag.name);
-                            return Outcome::fail(
-                                "FAILED_NOT_APPLIED",
-                                format!(
-                                    "Контроллер принял запись, но значение не изменилось: {after} (записано {value}); \
-                                     вероятно, программа не разрешает действие при текущих условиях"
-                                ),
-                            );
-                        }
-                    }
-                    Outcome::applied_converted(value, operator_value)
-                }
-                Ok(status) => {
-                    Outcome::fail(opcua::classify_write_status(status), format!("OPC UA отклонил запись: {status}"))
-                }
-                Err(e) => Outcome::fail("FAILED_WRITE", format!("Ошибка записи: {e:#}")),
             }
+            Outcome::applied_converted(value, operator_value)
         }
-        Protocol::Pac => {
-            let (Some(device), Some(field)) = (tag.device_name.as_deref(), tag.field_name.as_deref()) else {
-                return Outcome::fail(
-                    "REJECTED_UNKNOWN_TAG",
-                    format!("У PAC-тега нет device/field для команды: {}", tag.name),
-                );
-            };
-            // В set_cmd значение подставляется в Lua-текст — только число/bool, строк нет.
-            if matches!(value, TagValue::Text(_)) {
-                return Outcome::fail("REJECTED_TYPE_MISMATCH", "PAC принимает только числовые значения");
-            }
-            let mut guard = controller.pac.lock().await;
-            let Some(conn) = guard.as_mut() else {
-                return Outcome::fail("FAILED_WRITE", "Команда PAC не выполнена (нет активного соединения)");
-            };
-            match conn.exec_command(device, field, &value).await {
-                Ok(0) => {
-                    info!("✍ PAC записано {device}.{field} = {}", value);
-                    Outcome::applied_converted(value, operator_value)
-                }
-                Ok(code) => {
-                    Outcome::fail("FAILED_WRITE", format!("PAC не выполнил команду {device}.{field} (код {code})"))
-                }
-                Err(e) => {
-                    *guard = None; // связь оборвалась — опрос переподключится
-                    Outcome::fail("FAILED_WRITE", format!("Команда PAC не выполнена: {e:#}"))
-                }
-            }
+        Ok(status) => Outcome::fail(opcua::classify_write_status(status), format!("OPC UA отклонил запись: {status}")),
+        Err(e) => Outcome::fail("FAILED_WRITE", format!("Ошибка записи: {e:#}")),
+    }
+}
+
+/// Запись по PAC: `set_cmd` устройство.поле = значение; код 0 — принято.
+async fn write_pac(controller: &crate::app::ControllerHandle, w: Write<'_>) -> Outcome {
+    let Write { tag, value, operator_value, .. } = w;
+    let (Some(device), Some(field)) = (tag.device_name.as_deref(), tag.field_name.as_deref()) else {
+        return Outcome::fail("REJECTED_UNKNOWN_TAG", format!("У PAC-тега нет device/field для команды: {}", tag.name));
+    };
+    // В set_cmd значение подставляется в Lua-текст — только число/bool, строк нет.
+    if matches!(value, TagValue::Text(_)) {
+        return Outcome::fail("REJECTED_TYPE_MISMATCH", "PAC принимает только числовые значения");
+    }
+    let mut guard = controller.pac.lock().await;
+    let Some(conn) = guard.as_mut() else {
+        return Outcome::fail("FAILED_WRITE", "Команда PAC не выполнена (нет активного соединения)");
+    };
+    match conn.exec_command(device, field, &value).await {
+        Ok(0) => {
+            info!("✍ PAC записано {device}.{field} = {}", value);
+            Outcome::applied_converted(value, operator_value)
         }
-        Protocol::Modbus => unreachable!("отсечено выше"),
+        Ok(code) => Outcome::fail("FAILED_WRITE", format!("PAC не выполнил команду {device}.{field} (код {code})")),
+        Err(e) => {
+            *guard = None; // связь оборвалась — опрос переподключится
+            Outcome::fail("FAILED_WRITE", format!("Команда PAC не выполнена: {e:#}"))
+        }
     }
 }
 

@@ -15,8 +15,9 @@ use anyhow::{Context, Result, anyhow, bail};
 use chrono::Utc;
 use opcua::client::{Client, ClientBuilder, IdentityToken, Session};
 use opcua::crypto::SecurityPolicy;
+pub use opcua::types::ReadValueId;
 use opcua::types::{
-    AttributeId, DataValue, EndpointDescription, MessageSecurityMode, NodeId, NumericRange, ReadValueId, StatusCode,
+    AttributeId, DataValue, EndpointDescription, MessageSecurityMode, NodeId, NumericRange, StatusCode,
     TimestampsToReturn, UAString, UserTokenPolicy, Variant, WriteValue,
 };
 use tokio::net::TcpStream;

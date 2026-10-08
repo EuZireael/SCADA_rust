@@ -9,7 +9,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use serde::Deserialize;
 
 /// Все настройки процесса.
 #[derive(Debug, Clone)]
@@ -61,82 +60,13 @@ impl KafkaSettings {
     }
 }
 
-/// Дополнительные свойства librdkafka (`security.protocol`, `sasl.*`, `ssl.*`…). В `Debug` значения
-/// паролей и ключей скрыты, чтобы они не попали в журнал.
-#[derive(Clone, Default, PartialEq, Eq)]
-pub struct ClientProperties(pub Vec<(String, String)>);
+mod client_props;
+mod env;
+mod station;
 
-impl std::fmt::Debug for ClientProperties {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_map().entries(self.0.iter().map(|(k, v)| (k, if is_secret(k) { "***" } else { v.as_str() }))).finish()
-    }
-}
-
-impl ClientProperties {
-    /// Сводка для журнала: свойства без секретов.
-    pub fn summary(&self) -> String {
-        self.0.iter().filter(|(k, _)| !is_secret(k)).map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(", ")
-    }
-}
-
-fn is_secret(key: &str) -> bool {
-    key.contains("password") || key.contains("secret") || key.contains("key.pem")
-}
-
-/// Свойства Kafka-клиентов из окружения.
-///
-/// Именованные: `KAFKA_SECURITY_PROTOCOL`, `KAFKA_SASL_MECHANISM`, `KAFKA_SASL_USERNAME`,
-/// `KAFKA_SASL_PASSWORD`, `KAFKA_SSL_CA_LOCATION`, `KAFKA_SSL_CERTIFICATE_LOCATION`,
-/// `KAFKA_SSL_KEY_LOCATION`, `KAFKA_SSL_KEY_PASSWORD`. Любое другое свойство librdkafka —
-/// `KAFKA_CLIENT_<ИМЯ>` (`KAFKA_CLIENT_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM=none` →
-/// `ssl.endpoint.identification.algorithm=none`); оно перекрывает именованное. Для совместимости с
-/// Spring понимаются `SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL`, `…_SASL_MECHANISM` и
-/// `…_SASL_JAAS_CONFIG` (имя и пароль берутся из `username="…" password="…"`).
-pub fn client_properties(vars: impl IntoIterator<Item = (String, String)>) -> ClientProperties {
-    let vars: Vec<(String, String)> = vars.into_iter().filter(|(_, v)| !v.is_empty()).collect();
-    let get = |name: &str| vars.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone());
-    let mut props: Vec<(String, String)> = Vec::new();
-    let mut set = |key: &str, value: String| {
-        props.retain(|(k, _)| k != key);
-        props.push((key.to_string(), value));
-    };
-    for (key, names) in [
-        ("security.protocol", &["KAFKA_SECURITY_PROTOCOL", "SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL"][..]),
-        ("sasl.mechanism", &["KAFKA_SASL_MECHANISM", "SPRING_KAFKA_PROPERTIES_SASL_MECHANISM"][..]),
-        ("sasl.username", &["KAFKA_SASL_USERNAME"][..]),
-        ("sasl.password", &["KAFKA_SASL_PASSWORD"][..]),
-        ("ssl.ca.location", &["KAFKA_SSL_CA_LOCATION"][..]),
-        ("ssl.certificate.location", &["KAFKA_SSL_CERTIFICATE_LOCATION"][..]),
-        ("ssl.key.location", &["KAFKA_SSL_KEY_LOCATION"][..]),
-        ("ssl.key.password", &["KAFKA_SSL_KEY_PASSWORD"][..]),
-    ] {
-        if let Some(v) = names.iter().find_map(|n| get(n)) {
-            set(key, v.trim().to_string());
-        }
-    }
-    if let Some(jaas) = get("SPRING_KAFKA_PROPERTIES_SASL_JAAS_CONFIG") {
-        for (key, field) in [("sasl.username", "username"), ("sasl.password", "password")] {
-            if let Some(v) = jaas_field(&jaas, field) {
-                set(key, v);
-            }
-        }
-    }
-    for (name, value) in &vars {
-        if let Some(rest) = name.strip_prefix("KAFKA_CLIENT_") {
-            set(&rest.to_ascii_lowercase().replace('_', "."), value.trim().to_string());
-        }
-    }
-    ClientProperties(props)
-}
-
-/// `username="alice" password="s3"` → значение поля в кавычках (или без них, до пробела/`;`).
-fn jaas_field(jaas: &str, field: &str) -> Option<String> {
-    let rest = &jaas[jaas.find(&format!("{field}="))? + field.len() + 1..];
-    Some(match rest.strip_prefix('"') {
-        Some(quoted) => quoted[..quoted.find('"')?].to_string(),
-        None => rest.split(|c: char| c.is_whitespace() || c == ';').next()?.to_string(),
-    })
-}
+pub use client_props::{ClientProperties, client_properties};
+use env::*;
+pub use station::*;
 
 #[derive(Debug, Clone)]
 pub struct Topics {
@@ -235,9 +165,8 @@ impl Settings {
     /// Настройки из окружения; значения по умолчанию — как в application.yaml Java-шлюза.
     pub fn from_env() -> Result<Self> {
         let db = if env_bool(&["DB_ENABLED"], true) { Some(DbSettings::from_env()?) } else { None };
-        let commands_topic = env_or(&["KAFKA_TOPICS_COMMANDS"], "scada-commands");
-        let instance_id =
-            env_any(&["GATEWAY_HA_INSTANCE_ID", "GATEWAY_HA_INSTANCEID"]).unwrap_or_else(default_instance_id);
+        let kafka = KafkaSettings::from_env()?;
+        let gateway = GatewaySettings::from_env(&kafka.topics.commands)?;
         Ok(Settings {
             http_port: env_parse(&["SERVER_PORT"], 8888)?,
             http_bind: env_or(&["GATEWAY_HTTP_BIND", "SERVER_ADDRESS"], "0.0.0.0"),
@@ -249,95 +178,115 @@ impl Settings {
                     .unwrap_or_else(|| "config/controllers.yaml".into()),
             ),
             db,
-            kafka: KafkaSettings {
-                enabled: env_bool(&["KAFKA_ENABLED"], true),
-                bootstrap_servers: env_any(&["SPRING_KAFKA_BOOTSTRAP_SERVERS", "KAFKA_BOOTSTRAP_SERVERS"])
-                    .unwrap_or_else(|| "localhost:9092".into()),
-                publish_events: env_bool(&["KAFKA_PUBLISH_EVENTS"], true),
-                publish_alarms: env_bool(&["KAFKA_PUBLISH_ALARMS"], true),
-                replication: env_parse(&["KAFKA_TOPICS_REPLICATION"], 1)?,
-                client: client_properties(std::env::vars()),
-                topics: Topics {
-                    telemetry: env_or(&["KAFKA_TOPICS_TELEMETRY"], "scada.tags"),
-                    alarms: env_or(&["KAFKA_TOPICS_ALARMS"], "scada-alarms"),
-                    events: env_or(&["KAFKA_TOPICS_EVENTS"], "scada-events"),
-                    commands: commands_topic.clone(),
-                    command_results: env_or(
-                        &["KAFKA_TOPICS_COMMAND_RESULTS", "KAFKA_TOPICS_COMMANDRESULTS"],
-                        "scada-command-results",
-                    ),
-                },
-            },
-            gateway: GatewaySettings {
-                alarms_enabled: env_bool(&["GATEWAY_ALARMS_ENABLED"], false),
-                persist_telemetry: env_bool(&["GATEWAY_PERSIST_TELEMETRY", "GATEWAY_PERSISTTELEMETRY"], false),
-                telemetry_retention: Duration::from_secs(
-                    env_parse::<u64>(&["GATEWAY_TELEMETRY_RETENTION_HOURS"], 72)? * 3600,
+            kafka,
+            gateway,
+        })
+    }
+}
+
+impl KafkaSettings {
+    fn from_env() -> Result<Self> {
+        Ok(KafkaSettings {
+            enabled: env_bool(&["KAFKA_ENABLED"], true),
+            bootstrap_servers: env_any(&["SPRING_KAFKA_BOOTSTRAP_SERVERS", "KAFKA_BOOTSTRAP_SERVERS"])
+                .unwrap_or_else(|| "localhost:9092".into()),
+            publish_events: env_bool(&["KAFKA_PUBLISH_EVENTS"], true),
+            publish_alarms: env_bool(&["KAFKA_PUBLISH_ALARMS"], true),
+            replication: env_parse(&["KAFKA_TOPICS_REPLICATION"], 1)?,
+            client: client_properties(std::env::vars()),
+            topics: Topics {
+                telemetry: env_or(&["KAFKA_TOPICS_TELEMETRY"], "scada.tags"),
+                alarms: env_or(&["KAFKA_TOPICS_ALARMS"], "scada-alarms"),
+                events: env_or(&["KAFKA_TOPICS_EVENTS"], "scada-events"),
+                commands: env_or(&["KAFKA_TOPICS_COMMANDS"], "scada-commands"),
+                command_results: env_or(
+                    &["KAFKA_TOPICS_COMMAND_RESULTS", "KAFKA_TOPICS_COMMANDRESULTS"],
+                    "scada-command-results",
                 ),
-                send_bad_frames: env_bool(&["GATEWAY_SEND_BAD_FRAMES", "GATEWAY_SENDBADFRAMES"], true),
-                publish: PublishSettings {
-                    enabled: env_bool(&["GATEWAY_PUBLISH_ENABLED"], true),
-                    deadband: env_parse(&["GATEWAY_PUBLISH_DEADBAND"], 0.0)?,
-                    deadband_percent: env_parse(
-                        &["GATEWAY_PUBLISH_DEADBAND_PERCENT", "GATEWAY_PUBLISH_DEADBANDPERCENT"],
-                        0.0,
-                    )?,
-                    min_interval: env_ms(&["GATEWAY_PUBLISH_MIN_INTERVAL_MS", "GATEWAY_PUBLISH_MININTERVALMS"], 0)?,
-                    full_resend: env_ms(&["GATEWAY_PUBLISH_FULL_RESEND_MS", "GATEWAY_PUBLISH_FULLRESENDMS"], 30_000)?,
-                },
-                history: HistorySettings {
-                    deadband: env_parse(&["GATEWAY_HISTORY_DEADBAND"], 0.0)?,
-                    deadband_percent: env_parse(
-                        &["GATEWAY_HISTORY_DEADBAND_PERCENT", "GATEWAY_HISTORY_DEADBANDPERCENT"],
-                        0.0,
-                    )?,
-                    min_interval: env_ms(&["GATEWAY_HISTORY_MIN_INTERVAL_MS", "GATEWAY_HISTORY_MININTERVALMS"], 0)?,
-                    max_interval: env_ms(
-                        &["GATEWAY_HISTORY_MAX_INTERVAL_MS", "GATEWAY_HISTORY_MAXINTERVALMS"],
-                        600_000,
-                    )?,
-                },
-                command_max_age: env_ms(&["GATEWAY_COMMANDS_MAX_AGE_MS", "GATEWAY_COMMANDS_MAXAGEMS"], 30_000)?,
-                command_verify: env_ms(&["GATEWAY_COMMANDS_VERIFY_MS"], 0)?,
-                scripts: ScriptSettings {
-                    dir: PathBuf::from(env_or(&["GATEWAY_SCRIPTS_DIR"], "scripts")),
-                    timeout: env_ms(&["GATEWAY_SCRIPTS_TIMEOUT_MS", "GATEWAY_SCRIPTS_TIMEOUTMS"], 50)?,
-                    reload_interval: env_ms(
-                        &["GATEWAY_SCRIPTS_RELOAD_INTERVAL_MS", "GATEWAY_SCRIPTS_RELOADINTERVALMS"],
-                        5000,
-                    )?,
-                },
-                ha: HaSettings {
-                    enabled: env_bool(&["GATEWAY_HA_ENABLED"], false),
-                    instance_id,
-                    topic: env_or(&["GATEWAY_HA_TOPIC"], "scada-gateway-ha"),
-                    group_id: env_any(&["GATEWAY_HA_GROUP_ID", "GATEWAY_HA_GROUPID"])
-                        .unwrap_or_else(|| format!("scada-gateway-ha.{commands_topic}")),
-                    session_timeout_ms: env_parse(
-                        &["GATEWAY_HA_SESSION_TIMEOUT_MS", "GATEWAY_HA_SESSIONTIMEOUTMS"],
-                        6000,
-                    )?,
-                    heartbeat_interval_ms: env_parse(
-                        &["GATEWAY_HA_HEARTBEAT_INTERVAL_MS", "GATEWAY_HA_HEARTBEATINTERVALMS"],
-                        1000,
-                    )?,
-                    yield_after: env_ms(&["GATEWAY_HA_YIELD_AFTER_MS", "GATEWAY_HA_YIELDAFTERMS"], 30_000)?,
-                },
-                opcua_op_timeout: env_ms(&["GATEWAY_OPCUA_OP_TIMEOUT_MS", "GATEWAY_OPCUAOPTIMEOUTMS"], 5000)?,
-                opcua_pki_dir: env_any(&["GATEWAY_OPCUA_PKI_DIR"])
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| std::env::temp_dir().join("scada-gateway-pki")),
-                opcua_trust_server_certs: env_bool(&["GATEWAY_OPCUA_TRUST_SERVER_CERTS"], false),
-                modbus_op_timeout: env_ms(&["GATEWAY_MODBUS_OP_TIMEOUT_MS", "GATEWAY_MODBUSOPTIMEOUTMS"], 3000)?,
-                pac_op_timeout: env_ms(&["GATEWAY_PAC_OP_TIMEOUT_MS", "GATEWAY_PACOPTIMEOUTMS"], 3000)?,
-                stale_after: env_ms(&["GATEWAY_STALE_AFTER_MS"], 30_000)?,
-                reconnect_interval: env_ms(&["GATEWAY_SUPERVISE_INTERVAL_MS", "GATEWAY_SUPERVISEINTERVALMS"], 10_000)?,
-                health_log_interval: env_ms(
-                    &["GATEWAY_HEALTH_LOG_INTERVAL_MS", "GATEWAY_HEALTHLOGINTERVALMS"],
-                    60_000,
-                )?,
-                heartbeat_interval: env_ms(&["GATEWAY_HEARTBEAT_INTERVAL_MS", "GATEWAY_HEARTBEATINTERVALMS"], 30_000)?,
             },
+        })
+    }
+}
+
+impl GatewaySettings {
+    /// `commands_topic` — от него по умолчанию зависит группа выборов резервирования.
+    fn from_env(commands_topic: &str) -> Result<Self> {
+        Ok(GatewaySettings {
+            alarms_enabled: env_bool(&["GATEWAY_ALARMS_ENABLED"], false),
+            persist_telemetry: env_bool(&["GATEWAY_PERSIST_TELEMETRY", "GATEWAY_PERSISTTELEMETRY"], false),
+            telemetry_retention: Duration::from_secs(
+                env_parse::<u64>(&["GATEWAY_TELEMETRY_RETENTION_HOURS"], 72)? * 3600,
+            ),
+            send_bad_frames: env_bool(&["GATEWAY_SEND_BAD_FRAMES", "GATEWAY_SENDBADFRAMES"], true),
+            publish: PublishSettings::from_env()?,
+            history: HistorySettings::from_env()?,
+            command_max_age: env_ms(&["GATEWAY_COMMANDS_MAX_AGE_MS", "GATEWAY_COMMANDS_MAXAGEMS"], 30_000)?,
+            command_verify: env_ms(&["GATEWAY_COMMANDS_VERIFY_MS"], 0)?,
+            scripts: ScriptSettings::from_env()?,
+            ha: HaSettings::from_env(commands_topic)?,
+            opcua_op_timeout: env_ms(&["GATEWAY_OPCUA_OP_TIMEOUT_MS", "GATEWAY_OPCUAOPTIMEOUTMS"], 5000)?,
+            opcua_pki_dir: env_any(&["GATEWAY_OPCUA_PKI_DIR"])
+                .map(PathBuf::from)
+                .unwrap_or_else(|| std::env::temp_dir().join("scada-gateway-pki")),
+            opcua_trust_server_certs: env_bool(&["GATEWAY_OPCUA_TRUST_SERVER_CERTS"], false),
+            modbus_op_timeout: env_ms(&["GATEWAY_MODBUS_OP_TIMEOUT_MS", "GATEWAY_MODBUSOPTIMEOUTMS"], 3000)?,
+            pac_op_timeout: env_ms(&["GATEWAY_PAC_OP_TIMEOUT_MS", "GATEWAY_PACOPTIMEOUTMS"], 3000)?,
+            stale_after: env_ms(&["GATEWAY_STALE_AFTER_MS"], 30_000)?,
+            reconnect_interval: env_ms(&["GATEWAY_SUPERVISE_INTERVAL_MS", "GATEWAY_SUPERVISEINTERVALMS"], 10_000)?,
+            health_log_interval: env_ms(&["GATEWAY_HEALTH_LOG_INTERVAL_MS", "GATEWAY_HEALTHLOGINTERVALMS"], 60_000)?,
+            heartbeat_interval: env_ms(&["GATEWAY_HEARTBEAT_INTERVAL_MS", "GATEWAY_HEARTBEATINTERVALMS"], 30_000)?,
+        })
+    }
+}
+
+impl PublishSettings {
+    fn from_env() -> Result<Self> {
+        Ok(PublishSettings {
+            enabled: env_bool(&["GATEWAY_PUBLISH_ENABLED"], true),
+            deadband: env_parse(&["GATEWAY_PUBLISH_DEADBAND"], 0.0)?,
+            deadband_percent: env_parse(&["GATEWAY_PUBLISH_DEADBAND_PERCENT", "GATEWAY_PUBLISH_DEADBANDPERCENT"], 0.0)?,
+            min_interval: env_ms(&["GATEWAY_PUBLISH_MIN_INTERVAL_MS", "GATEWAY_PUBLISH_MININTERVALMS"], 0)?,
+            full_resend: env_ms(&["GATEWAY_PUBLISH_FULL_RESEND_MS", "GATEWAY_PUBLISH_FULLRESENDMS"], 30_000)?,
+        })
+    }
+}
+
+impl HistorySettings {
+    fn from_env() -> Result<Self> {
+        Ok(HistorySettings {
+            deadband: env_parse(&["GATEWAY_HISTORY_DEADBAND"], 0.0)?,
+            deadband_percent: env_parse(&["GATEWAY_HISTORY_DEADBAND_PERCENT", "GATEWAY_HISTORY_DEADBANDPERCENT"], 0.0)?,
+            min_interval: env_ms(&["GATEWAY_HISTORY_MIN_INTERVAL_MS", "GATEWAY_HISTORY_MININTERVALMS"], 0)?,
+            max_interval: env_ms(&["GATEWAY_HISTORY_MAX_INTERVAL_MS", "GATEWAY_HISTORY_MAXINTERVALMS"], 600_000)?,
+        })
+    }
+}
+
+impl ScriptSettings {
+    fn from_env() -> Result<Self> {
+        Ok(ScriptSettings {
+            dir: PathBuf::from(env_or(&["GATEWAY_SCRIPTS_DIR"], "scripts")),
+            timeout: env_ms(&["GATEWAY_SCRIPTS_TIMEOUT_MS", "GATEWAY_SCRIPTS_TIMEOUTMS"], 50)?,
+            reload_interval: env_ms(&["GATEWAY_SCRIPTS_RELOAD_INTERVAL_MS", "GATEWAY_SCRIPTS_RELOADINTERVALMS"], 5000)?,
+        })
+    }
+}
+
+impl HaSettings {
+    fn from_env(commands_topic: &str) -> Result<Self> {
+        Ok(HaSettings {
+            enabled: env_bool(&["GATEWAY_HA_ENABLED"], false),
+            instance_id: env_any(&["GATEWAY_HA_INSTANCE_ID", "GATEWAY_HA_INSTANCEID"])
+                .unwrap_or_else(default_instance_id),
+            topic: env_or(&["GATEWAY_HA_TOPIC"], "scada-gateway-ha"),
+            group_id: env_any(&["GATEWAY_HA_GROUP_ID", "GATEWAY_HA_GROUPID"])
+                .unwrap_or_else(|| format!("scada-gateway-ha.{commands_topic}")),
+            session_timeout_ms: env_parse(&["GATEWAY_HA_SESSION_TIMEOUT_MS", "GATEWAY_HA_SESSIONTIMEOUTMS"], 6000)?,
+            heartbeat_interval_ms: env_parse(
+                &["GATEWAY_HA_HEARTBEAT_INTERVAL_MS", "GATEWAY_HA_HEARTBEATINTERVALMS"],
+                1000,
+            )?,
+            yield_after: env_ms(&["GATEWAY_HA_YIELD_AFTER_MS", "GATEWAY_HA_YIELDAFTERMS"], 30_000)?,
         })
     }
 }
@@ -375,244 +324,6 @@ pub fn parse_jdbc_url(url: &str) -> Result<(String, u16, String)> {
         bail!("неполный адрес БД: {url}");
     }
     Ok((host, port, database))
-}
-
-/// Токен REST: `GATEWAY_API_TOKEN` или содержимое файла из `GATEWAY_API_TOKEN_FILE` (секреты Docker).
-fn api_token() -> Result<Option<String>> {
-    if let Some(t) = env_any(&["GATEWAY_API_TOKEN"]) {
-        return Ok(Some(t.trim().to_string()));
-    }
-    let Some(path) = env_any(&["GATEWAY_API_TOKEN_FILE"]) else { return Ok(None) };
-    let token = std::fs::read_to_string(&path).with_context(|| format!("GATEWAY_API_TOKEN_FILE={path}"))?;
-    let token = token.trim().to_string();
-    if token.is_empty() {
-        bail!("GATEWAY_API_TOKEN_FILE={path}: файл пуст");
-    }
-    Ok(Some(token))
-}
-
-/// Имя экземпляра по умолчанию — хост и pid (как у Java-шлюза).
-fn default_instance_id() -> String {
-    let host = std::env::var("HOSTNAME").ok().filter(|h| !h.is_empty()).unwrap_or_else(|| "gateway".into());
-    format!("{host}-{}", std::process::id())
-}
-
-fn env_any(names: &[&str]) -> Option<String> {
-    names.iter().find_map(|n| std::env::var(n).ok().filter(|v| !v.is_empty()))
-}
-
-fn env_or(names: &[&str], default: &str) -> String {
-    env_any(names).unwrap_or_else(|| default.to_string())
-}
-
-fn env_bool(names: &[&str], default: bool) -> bool {
-    match env_any(names) {
-        Some(v) => matches!(v.trim().to_ascii_lowercase().as_str(), "true" | "1" | "yes" | "on"),
-        None => default,
-    }
-}
-
-fn env_parse<T: std::str::FromStr>(names: &[&str], default: T) -> Result<T>
-where
-    T::Err: std::fmt::Display,
-{
-    match env_any(names) {
-        Some(v) => v.trim().parse().map_err(|e| anyhow::anyhow!("{}={v}: {e}", names[0])),
-        None => Ok(default),
-    }
-}
-
-fn env_ms(names: &[&str], default: u64) -> Result<Duration> {
-    Ok(Duration::from_millis(env_parse(names, default)?))
-}
-
-// ---------------------------------------------------------------- controllers.yaml --
-
-#[derive(Debug, Deserialize)]
-pub struct ControllersFile {
-    pub opcua: ControllersSection,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ControllersSection {
-    #[serde(default)]
-    pub servers: Vec<ServerConfig>,
-}
-
-/// Один контроллер из YAML (OPC UA / Modbus / PAC — по схеме endpoint).
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ServerConfig {
-    #[allow(dead_code)] // id разбирается для совместимости формата с Java-шлюзом
-    pub id: Option<String>,
-    pub name: String,
-    pub endpoint: String,
-    /// Политика и режим канала OPC UA: `None` (по умолчанию), `Basic256Sha256`, `Aes256_Sha256_RsaPss_Sign`…
-    pub security: Option<String>,
-    /// Пользователь OPC UA (вместе с `password`; пароль удобно держать в `${PLC_PASSWORD}`).
-    pub username: Option<String>,
-    pub password: Option<String>,
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub tags: Vec<TagConfig>,
-}
-
-impl ServerConfig {
-    /// Защита соединения с OPC UA-контроллером из `security`/`username`/`password`.
-    pub fn opc_security(&self) -> Result<crate::model::OpcSecurity> {
-        crate::model::OpcSecurity::parse(self.security.as_deref(), self.username.as_deref(), self.password.as_deref())
-            .map_err(|e| anyhow::anyhow!("{e}"))
-    }
-
-    /// Проверка при старте: молча проигнорированные настройки защиты — дыра, поэтому ошибка в `security`
-    /// или защита у протокола, который её не поддерживает (Modbus, PAC), останавливают запуск.
-    pub fn validate(&self) -> Result<()> {
-        let security = self.opc_security().with_context(|| format!("контроллер {:?}", self.name))?;
-        let is_opcua = self.endpoint.starts_with("opc.tcp://");
-        if !is_opcua && (security.is_secure() || security.username.is_some()) {
-            bail!(
-                "контроллер {:?}: security/username/password поддерживаются только для OPC UA (endpoint {}); \
-                 для Modbus и PAC защиты на уровне протокола нет — не задавайте их, чтобы не думать, что канал защищён",
-                self.name,
-                self.endpoint
-            );
-        }
-        Ok(())
-    }
-}
-
-/// Один тег/канал из YAML — поля как у TagConfig Java-шлюза.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TagConfig {
-    pub name: String,
-    pub node_id: String,
-    pub channel_id: Option<i64>,
-    pub device_name: Option<String>,
-    pub field_name: Option<String>,
-    pub device_type: Option<String>,
-    pub protocol: Option<String>,
-    pub data_type: String,
-    #[serde(default)]
-    pub polling_rate: u64,
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub writable: bool,
-    pub unit: Option<String>,
-    pub min_value: Option<f64>,
-    pub max_value: Option<f64>,
-    pub modbus_address: Option<i32>,
-    pub modbus_type: Option<String>,
-    pub modbus_unit_id: Option<u8>,
-    /// Переопределение фильтра истории для тега; не заданные поля — умолчания `gateway.history.*`.
-    pub history: Option<HistoryConfig>,
-}
-
-/// Блок `history:` тега: `{deadband: 0.5, deadbandPercent: 1, minIntervalMs: 60000, maxIntervalMs: 600000}`.
-#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct HistoryConfig {
-    pub deadband: Option<f64>,
-    pub deadband_percent: Option<f64>,
-    pub min_interval_ms: Option<u64>,
-    pub max_interval_ms: Option<u64>,
-}
-
-/// Прочитать controllers.yaml с подстановкой `${VAR:default}` из окружения.
-pub fn load_controllers(path: &std::path::Path) -> Result<Vec<ServerConfig>> {
-    let raw = std::fs::read_to_string(path).with_context(|| format!("не прочитан {}", path.display()))?;
-    let expanded = expand_placeholders(&raw, |k| std::env::var(k).ok())
-        .with_context(|| format!("{}: не заданы обязательные переменные", path.display()))?;
-    parse_controllers(&expanded)
-}
-
-pub fn parse_controllers(yaml: &str) -> Result<Vec<ServerConfig>> {
-    let file: ControllersFile = serde_yaml_ng::from_str(yaml).context("controllers.yaml не разобран")?;
-    for server in file.opcua.servers.iter().filter(|s| s.enabled) {
-        server.validate()?;
-    }
-    validate_station(&file.opcua.servers)?;
-    Ok(file.opcua.servers)
-}
-
-/// Проверка конфигурации в целом (включённые контроллеры): имена контроллеров и тегов уникальны, протокол
-/// контроллера известен. Имя тега — ключ сообщения Kafka и адрес команды: два тега с одним именем делали бы
-/// телеметрию и команды неоднозначными, а контроллер с неизвестным протоколом молча не опрашивался бы.
-pub fn validate_station(servers: &[ServerConfig]) -> Result<()> {
-    let mut problems: Vec<String> = Vec::new();
-    let mut controller_names = std::collections::HashSet::new();
-    let mut tag_owner: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
-    let mut duplicates: Vec<String> = Vec::new();
-    for server in servers.iter().filter(|s| s.enabled) {
-        if !controller_names.insert(server.name.as_str()) {
-            problems.push(format!("контроллер {:?} описан дважды", server.name));
-        }
-        if crate::model::ControllerKind::from_endpoint(&server.endpoint).is_none() {
-            problems.push(format!(
-                "контроллер {:?}: неизвестный протокол в endpoint {:?} (ожидается opc.tcp://, modbus:// или pac://)",
-                server.name, server.endpoint
-            ));
-        }
-        for tag in server.tags.iter().filter(|t| t.enabled) {
-            if tag.name.trim().is_empty() {
-                problems.push(format!("контроллер {:?}: у включённого тега пустое имя", server.name));
-            } else if let Some(first) = tag_owner.insert(tag.name.as_str(), server.name.as_str()) {
-                duplicates.push(format!("{} ({first} и {})", tag.name, server.name));
-            }
-        }
-    }
-    if !duplicates.is_empty() {
-        problems.push(format!(
-            "имена тегов должны быть уникальны (это ключ Kafka и адрес команды), повторяются {}: {}{}",
-            duplicates.len(),
-            duplicates.iter().take(5).cloned().collect::<Vec<_>>().join("; "),
-            if duplicates.len() > 5 { "; …" } else { "" }
-        ));
-    }
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        bail!("конфигурация контроллеров не принята:\n  - {}", problems.join("\n  - "))
-    }
-}
-
-/// Подстановка в стиле Spring: `${NAME:default}` — со значением по умолчанию (пустое `${NAME:}`
-/// тоже допустимо); `${NAME}` без умолчания **обязательна** — без неё ошибка, а не пустая строка:
-/// адрес контроллера `opc.tcp://:4840` шлюз молча не обнаружил бы до первой попытки подключения.
-pub fn expand_placeholders(text: &str, lookup: impl Fn(&str) -> Option<String>) -> Result<String> {
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    let mut missing: Vec<String> = Vec::new();
-    while let Some(start) = rest.find("${") {
-        out.push_str(&rest[..start]);
-        let after = &rest[start + 2..];
-        match after.find('}') {
-            Some(end) => {
-                let expr = &after[..end];
-                match expr.split_once(':') {
-                    Some((name, default)) => out.push_str(&lookup(name).unwrap_or_else(|| default.to_string())),
-                    None => match lookup(expr) {
-                        Some(v) => out.push_str(&v),
-                        None => missing.push(expr.to_string()),
-                    },
-                }
-                rest = &after[end + 1..];
-            }
-            None => {
-                out.push_str(&rest[start..]);
-                rest = "";
-            }
-        }
-    }
-    out.push_str(rest);
-    if !missing.is_empty() {
-        missing.sort();
-        missing.dedup();
-        bail!("задайте переменные окружения: {}", missing.join(", "));
-    }
-    Ok(out)
 }
 
 #[cfg(test)]
