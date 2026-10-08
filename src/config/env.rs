@@ -9,10 +9,12 @@ use anyhow::{Context, Result, bail};
 pub struct Secret(String);
 
 impl Secret {
+    /// Обернуть значение секрета.
     pub fn new(value: String) -> Self {
         Secret(value)
     }
 
+    /// Само значение: вызывать только там, где оно действительно нужно (подключение, сравнение токена).
     pub fn expose(&self) -> &str {
         &self.0
     }
@@ -44,14 +46,17 @@ pub(super) fn default_instance_id() -> String {
     format!("{host}-{}", std::process::id())
 }
 
+/// Первая заданная (непустая) переменная из списка синонимов.
 pub(super) fn env_any(names: &[&str]) -> Option<String> {
     names.iter().find_map(|n| std::env::var(n).ok().filter(|v| !v.is_empty()))
 }
 
+/// То же, но со значением по умолчанию.
 pub(super) fn env_or(names: &[&str], default: &str) -> String {
     env_any(names).unwrap_or_else(|| default.to_string())
 }
 
+/// Логическая переменная: `true`, `1`, `yes`, `on` — «да», всё остальное — «нет».
 pub(super) fn env_bool(names: &[&str], default: bool) -> bool {
     match env_any(names) {
         Some(v) => matches!(v.trim().to_ascii_lowercase().as_str(), "true" | "1" | "yes" | "on"),
@@ -59,6 +64,7 @@ pub(super) fn env_bool(names: &[&str], default: bool) -> bool {
     }
 }
 
+/// Число (любой `FromStr`) из переменной; неверное значение — ошибка с именем переменной, а не молчаливое умолчание.
 pub(super) fn env_parse<T: std::str::FromStr>(names: &[&str], default: T) -> Result<T>
 where
     T::Err: std::fmt::Display,
@@ -69,6 +75,7 @@ where
     }
 }
 
+/// Миллисекунды из переменной как `Duration`.
 pub(super) fn env_ms(names: &[&str], default: u64) -> Result<Duration> {
     Ok(Duration::from_millis(env_parse(names, default)?))
 }

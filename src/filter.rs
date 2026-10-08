@@ -34,8 +34,11 @@ use crate::model::{Quality, TagValue};
 /// Параметры решения для одного тега.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FilterParams {
+    /// Абсолютная зона нечувствительности.
     pub deadband: f64,
+    /// Относительная зона, % от последнего опубликованного значения.
     pub deadband_percent: f64,
+    /// Антидребезг: не чаще одной публикации за интервал; 0 — выключено.
     pub min_interval: Duration,
     /// Полная отправка / «пульс»; ноль — выключено.
     pub max_interval: Duration,
@@ -125,6 +128,7 @@ pub fn decide_phased(
     publish
 }
 
+/// Правило 5 контракта: изменилось ли значение относительно последнего опубликованного. Числа — больше зоны (при нулевой зоне — любое отличие; `NaN` равен `NaN`), остальное — на равенство.
 fn changed(params: &FilterParams, previous: Option<&TagValue>, current: Option<&TagValue>) -> bool {
     match (previous, current) {
         (Some(p), Some(c)) if p.is_numeric() && c.is_numeric() => {

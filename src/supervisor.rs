@@ -17,7 +17,9 @@ use tracing::error;
 use crate::events::{Event, EventSink};
 use crate::metrics::Metrics;
 
+/// Пауза перед первым перезапуском задачи.
 const MIN_BACKOFF: Duration = Duration::from_secs(1);
+/// Потолок паузы: она удваивается до этого значения.
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
 /// Задача проработала столько — прежние сбои забыты, пауза снова минимальная.
 const HEALTHY_AFTER: Duration = Duration::from_secs(60);
@@ -69,6 +71,7 @@ where
     })
 }
 
+/// Текст паники из её полезной нагрузки (`String`, `&str` или «без сообщения»).
 fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
     match payload.downcast::<String>() {
         Ok(s) => *s,

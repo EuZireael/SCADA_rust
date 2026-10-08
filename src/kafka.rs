@@ -64,6 +64,7 @@ impl DeliveryState {
         recovered
     }
 
+    /// «Эпоха» восстановления доставки: растёт при каждом восстановлении после сбоя; обработчики сравнивают её со своей и отправляют все теги заново.
     pub fn resync_epoch(&self) -> u64 {
         self.resync_epoch.load(Ordering::Acquire)
     }
@@ -74,6 +75,7 @@ impl DeliveryState {
     }
 }
 
+/// Колбэк доставки продюсера: считает ошибки и ведёт [`DeliveryState`].
 struct DeliveryCounter {
     metrics: Arc<Metrics>,
     state: Arc<DeliveryState>,
@@ -125,6 +127,7 @@ pub struct KafkaOut {
 }
 
 impl KafkaOut {
+    /// Создать продюсера (идемпотентность, `acks=all`, snappy, пачки по 5 мс); неверное свойство безопасности — ошибка.
     pub fn new(settings: &KafkaSettings, metrics: Arc<Metrics>, leadership: Arc<Leadership>) -> Result<Self> {
         let delivery = Arc::new(DeliveryState::default());
         let producer: ThreadedProducer<DeliveryCounter> = settings
@@ -151,6 +154,7 @@ impl KafkaOut {
         })
     }
 
+    /// Сериализовать сообщение в JSON и отправить; ошибка сериализации — в журнал, сообщение теряется.
     fn send<T: Serialize>(&self, topic: &str, key: &str, message: &T) {
         let payload = match serde_json::to_vec(message) {
             Ok(p) => p,
@@ -180,6 +184,7 @@ impl KafkaOut {
         }
     }
 
+    /// Телеметрия тега в топик телеметрии (ключ — имя тега). Только ставит в очередь librdkafka, сеть не ждёт.
     pub fn send_telemetry(&self, tag_name: &str, message: &TelemetryMessage) {
         thread_local! {
             /// Буфер тела телеметрии переиспользуется: сообщение копируется в очередь librdkafka при отправке.
@@ -193,18 +198,21 @@ impl KafkaOut {
         });
     }
 
+    /// Событие в топик событий (ключ — тип): только активный экземпляр и только если публикация включена.
     pub fn send_event(&self, message: &EventMessage) {
         if self.publish_events && self.leadership.is_active() {
             self.send(&self.topics.events, &message.event_type, message);
         }
     }
 
+    /// Аларм в топик алармов (ключ — имя тега): только активный экземпляр и только если публикация включена.
     pub fn send_alarm(&self, message: &AlarmMessage) {
         if self.publish_alarms && self.leadership.is_active() {
             self.send(&self.topics.alarms, &message.tag_name, message);
         }
     }
 
+    /// Результат команды (ключ — имя тега или `commandId`). Всегда: команды принимает только активный экземпляр.
     pub fn send_result(&self, message: &CommandResultMessage) {
         let key = message.tag_name.as_deref().or(message.command_id.as_deref()).unwrap_or("");
         self.send(&self.topics.command_results, key, message);
@@ -236,6 +244,7 @@ pub async fn ensure_topic(settings: &KafkaSettings, name: &str, partitions: i32)
     create_topics(settings, &[(name, partitions)]).await;
 }
 
+/// Создать топики, которых нет; недоступный брокер или отказ — предупреждение, а не ошибка запуска.
 async fn create_topics(settings: &KafkaSettings, specs: &[(&str, i32)]) {
     let admin: AdminClient<DefaultClientContext> = match settings.client_config().create() {
         Ok(a) => a,
@@ -317,6 +326,7 @@ pub async fn consume_commands<F, Fut>(
     }
 }
 
+/// Читать команды, пока экземпляр активен; позиция коммитится до исполнения. Возврат — роль сменилась, остановка или ошибка консьюмера.
 async fn consume_while_active<F, Fut>(
     consumer: &StreamConsumer,
     leadership: &Leadership,
@@ -371,6 +381,7 @@ fn preview(payload: &[u8]) -> String {
     }
 }
 
+/// Консьюмер с ручным назначением всех партиций топика команд: с закоммиченной позиции группы, а при первом запуске — с конца.
 fn assigned_consumer(settings: &KafkaSettings, topic: &str) -> Result<StreamConsumer> {
     let consumer: StreamConsumer =
         settings.client_config().set("group.id", "scada-gateway-group").set("enable.auto.commit", "false").create()?;

@@ -19,6 +19,7 @@ pub(super) fn to_lua(lua: &Lua, v: Option<&TagValue>) -> mlua::Result<Value> {
     })
 }
 
+/// Значение Lua для текста сообщения об ошибке.
 pub(super) fn lua_text(v: &Value) -> String {
     match v {
         Value::String(s) => s.to_string_lossy(),
@@ -79,6 +80,7 @@ pub(super) fn from_lua(
     }
 }
 
+/// Значение команды (JSON) → Lua: числа и bool, остальное — `nil`.
 pub(super) fn json_to_lua(v: &Json) -> Value {
     match v {
         Json::Bool(b) => Value::Boolean(*b),
@@ -87,6 +89,7 @@ pub(super) fn json_to_lua(v: &Json) -> Value {
     }
 }
 
+/// Значение канала → JSON для `write`; целое вещественное пишется целым.
 pub(super) fn tag_value_to_json(v: &TagValue) -> Json {
     match v {
         TagValue::Bool(b) => json!(b),
@@ -98,7 +101,9 @@ pub(super) fn tag_value_to_json(v: &TagValue) -> Json {
     }
 }
 
+/// Параметры привязки из YAML → таблица Lua (`ctx.params`).
 pub(super) fn yaml_to_lua(lua: &Lua, v: &serde_yaml_ng::Value) -> Result<Table> {
+    /// Рекурсивный перевод одного значения YAML.
     fn value(lua: &Lua, v: &serde_yaml_ng::Value) -> Result<Value> {
         use serde_yaml_ng::Value as Y;
         Ok(match v {

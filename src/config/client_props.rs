@@ -18,6 +18,7 @@ impl ClientProperties {
     }
 }
 
+/// Содержит ли имя свойства секрет: его значение скрывается в `Debug` и журнале.
 fn is_secret(key: &str) -> bool {
     key.contains("password") || key.contains("secret") || key.contains("key.pem")
 }

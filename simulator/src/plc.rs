@@ -18,6 +18,7 @@ use crate::replay::Replay;
 use crate::tag::{Protocol, Tag};
 use crate::value::Value;
 
+/// Состояние симулируемого ПЛК: теги, значения, обратное чтение регистров и реплей. Общее для всех серверов (OPC UA, Modbus, PAC).
 pub struct Plc {
     pub id: String,
     pub name: String,
@@ -28,6 +29,7 @@ pub struct Plc {
     pub wake: Notify,
 }
 
+/// Изменяемая часть ПЛК под мьютексом.
 struct State {
     tags: Vec<Tag>,
     by_address: HashMap<String, usize>,
@@ -46,6 +48,7 @@ pub enum Effect {
     Ignored,
 }
 
+/// Имя поля без пробелов: пробелы в YAML-именах не должны мешать совпадению.
 fn normalized(field: &str) -> String {
     field.chars().filter(|c| !c.is_whitespace()).collect()
 }
@@ -59,13 +62,18 @@ pub struct Cycle {
     pub pac: HashMap<String, Value>,
 }
 
+/// Почему запись клиента отклонена.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WriteError {
+    /// Такого тега нет.
     UnknownTag,
+    /// Тег только для чтения.
     NotWritable,
+    /// Значение не подходит к типу тега.
     TypeMismatch,
 }
 
+/// Сводка по тегам для журнала запуска.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Stats {
     pub total: usize,
@@ -76,6 +84,7 @@ pub struct Stats {
 }
 
 impl Plc {
+    /// Собрать ПЛК из конфигурации: теги и их начальные значения; ошибка в теге — ошибка запуска.
     pub fn new(cfg: &Config, replay: Option<Replay>) -> Result<Self> {
         let mut tags = Vec::new();
         for db in &cfg.plc.data_blocks {
@@ -118,11 +127,13 @@ impl Plc {
         })
     }
 
+    /// Реплей архива, если он включён.
     #[cfg(test)]
     pub fn replay(&self) -> Option<&Replay> {
         self.replay.as_ref()
     }
 
+    /// Сколько тегов каждого протокола и сколько из них берут значения из архива.
     pub fn stats(&self) -> Stats {
         let s = self.state.lock().expect("состояние");
         let mut st = Stats { total: s.tags.len(), ..Stats::default() };

@@ -12,16 +12,23 @@ use super::env::{Secret, env_any, env_or};
 /// прослушивания, но не от подмены сервера; от неё защищают `VerifyCa` и `VerifyFull`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DbSsl {
+    /// Без TLS.
     Disable,
+    /// Сначала без TLS, при отказе — с TLS.
     Allow,
+    /// TLS, если сервер его предлагает, без проверки сертификата (по умолчанию, как в libpq).
     #[default]
     Prefer,
+    /// Только TLS, сертификат сервера не проверяется: защита от прослушивания, но не от подмены сервера.
     Require,
+    /// Только TLS, сертификат проверяется по корневому сертификату (имя сервера не сверяется).
     VerifyCa,
+    /// Только TLS, проверяются и сертификат, и имя сервера.
     VerifyFull,
 }
 
 impl DbSsl {
+    /// Разобрать значение `sslmode`; незнакомое — ошибка с перечнем допустимых.
     pub fn parse(text: &str) -> Result<Self> {
         Ok(match text.trim().to_ascii_lowercase().as_str() {
             "disable" => DbSsl::Disable,
@@ -40,19 +47,27 @@ impl DbSsl {
     }
 }
 
+/// Подключение к PostgreSQL.
 #[derive(Debug, Clone)]
 pub struct DbSettings {
+    /// Адрес сервера.
     pub host: String,
+    /// Порт (по умолчанию 5432).
     pub port: u16,
+    /// Имя базы.
     pub database: String,
+    /// Пользователь (`SPRING_DATASOURCE_USERNAME` или `DB_USERNAME`).
     pub username: String,
+    /// Пароль; не показывается в `Debug` и журнале.
     pub password: Secret,
+    /// Режим TLS.
     pub ssl: DbSsl,
     /// Корневой сертификат УЦ сервера (`sslrootcert`); без него — системные корневые сертификаты.
     pub ssl_root_cert: Option<PathBuf>,
 }
 
 impl DbSettings {
+    /// Подключение из окружения: адрес — из URL, логин и пароль — из своих переменных; `DB_SSLMODE` и `DB_SSLROOTCERT` сильнее адреса.
     pub(super) fn from_env() -> Result<Self> {
         let url = env_any(&["SPRING_DATASOURCE_URL", "DB_URL"])
             .unwrap_or_else(|| "jdbc:postgresql://localhost:5433/scada_db".into());
@@ -78,10 +93,15 @@ impl DbSettings {
 /// Разобранный адрес БД.
 #[derive(Debug, PartialEq, Eq)]
 pub struct JdbcUrl {
+    /// Адрес сервера.
     pub host: String,
+    /// Порт.
     pub port: u16,
+    /// Имя базы.
     pub database: String,
+    /// Режим TLS из `sslmode` или `ssl`; по умолчанию `prefer`.
     pub ssl: DbSsl,
+    /// Корневой сертификат из `sslrootcert`.
     pub ssl_root_cert: Option<PathBuf>,
 }
 

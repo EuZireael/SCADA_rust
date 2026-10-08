@@ -10,6 +10,7 @@ pub enum Value {
 }
 
 impl Value {
+    /// Значение числом: bool — 0/1, строка — `None`.
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             Value::Bool(b) => Some(f64::from(u8::from(*b))),

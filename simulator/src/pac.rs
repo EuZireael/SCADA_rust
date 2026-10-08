@@ -29,19 +29,28 @@ use tracing::{debug, info, warn};
 
 use crate::value::Value;
 
+/// Версия протокола, которую сервер называет при handshake.
 const PROTOCOL_VERSION: u32 = 104;
+/// Команда: версия протокола и имя PAC.
 pub const CMD_GET_INFO_ON_CONNECT: u8 = 10;
+/// Команда: объектная модель (приборы и поля).
 pub const CMD_GET_DEVICES: u8 = 100;
+/// Команда: снимок состояния приборов.
 pub const CMD_GET_DEVICES_STATES: u8 = 101;
+/// Команда: выполнить команду прибора.
 pub const CMD_EXEC_DEVICE_COMMAND: u8 = 102;
+/// Команда: ошибки PAC (симулятор отвечает пустым списком).
 pub const CMD_GET_PAC_ERRORS: u8 = 103;
 
+/// Приветствие, которое сервер присылает сразу после подключения.
 pub const BANNER: &[u8] = b"PAC accept";
+/// Первый байт каждого кадра.
 const NET_ID: u8 = b's';
 /// Так помечает успешный ответ ptusa.
 pub const STATUS_OK: u8 = 12;
 /// Драйвер трактует `ответ[1] == 7` как ошибку.
 const STATUS_ERROR: u8 = 7;
+/// Длина заголовка запроса, байт.
 const REQUEST_HEADER_LEN: usize = 6;
 /// Длина ответа — 2 байта → сжатое тело ≤ 65535 байт.
 const MAX_BODY: usize = 0xFFFF;
@@ -50,23 +59,30 @@ const MAX_BODY: usize = 0xFFFF;
 pub const EXEC_APPLIED: [u8; 2] = [0, 0];
 pub const EXEC_FAILED: [u8; 2] = [1, 0];
 
+/// Поле прибора PAC.
 #[derive(Debug, Clone)]
 pub struct PacField {
+    /// Имя поля (`ST`, `RT_PAR_F[12]`).
     pub field: String,
     /// node.id канала (ключ снимка).
     pub address: String,
 }
 
+/// Прибор PAC и его поля.
 #[derive(Debug, Clone)]
 pub struct PacDevice {
+    /// Имя прибора (`LINE1V0`).
     pub device: String,
+    /// Тип прибора (`V`, `M`…); по умолчанию `DEV`.
     pub dev_type: String,
+    /// Поля прибора.
     pub fields: Vec<PacField>,
 }
 
 /// Запись драйвера: (прибор, поле, индекс, значение) → применено ли.
 pub type WriteFn = dyn Fn(&str, &str, Option<u32>, &Value) -> bool + Send + Sync;
 
+/// Модель PAC: приборы, текущий снимок значений и функция записи, которой симулятор применяет команды драйвера.
 pub struct PacModel {
     name: String,
     params_crc: u32,
@@ -76,6 +92,7 @@ pub struct PacModel {
 }
 
 impl PacModel {
+    /// Модель без значений; снимок кладёт цикл симулятора.
     pub fn new(name: &str, devices: Vec<PacDevice>, on_write: Box<WriteFn>) -> Self {
         PacModel { name: name.to_string(), params_crc: 0, devices, values: Mutex::new(HashMap::new()), on_write }
     }
@@ -104,6 +121,7 @@ impl PacModel {
         }
     }
 
+    /// Ответ на handshake: версия протокола, имя, контрольная сумма параметров (C-строка).
     fn build_info(&self) -> Vec<u8> {
         let name = self.name.replace('\\', "\\\\").replace('"', "\\\"");
         format!(
@@ -205,6 +223,7 @@ fn set_cmd_re() -> &'static Regex {
     })
 }
 
+/// Значение из текста команды: целое, вещественное или строка.
 fn parse_scalar(text: &str) -> Value {
     if let Ok(i) = text.parse::<i64>() {
         Value::Int(i)
@@ -259,6 +278,7 @@ pub fn format_g6(x: f64) -> String {
     }
 }
 
+/// zlib-сжатие тела ответа (`compress2`, как у драйвера).
 fn compress(body: &[u8]) -> Vec<u8> {
     let mut enc = ZlibEncoder::new(Vec::new(), Compression::default());
     enc.write_all(body).expect("zlib");
@@ -277,6 +297,7 @@ fn response(pidx: u8, status: u8, body: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Обслужить одно соединение драйвера: приветствие, затем кадры «запрос — ответ» до закрытия.
 async fn handle(mut stream: TcpStream, model: Arc<PacModel>) -> Result<()> {
     let peer = stream.peer_addr().ok();
     info!("PAC: драйвер подключился {peer:?}");

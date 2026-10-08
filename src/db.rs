@@ -17,6 +17,7 @@ use tracing::{info, warn};
 use crate::config::{DbSettings, DbSsl};
 use crate::model::{Controller, Tag, TagValue};
 
+/// Подключиться к БД (ждёт до минуты, пока сервер поднимется; неверный пароль и сертификат показывает сразу) и применить миграции схемы.
 pub async fn connect(settings: &DbSettings) -> Result<PgPool> {
     let mut options = PgConnectOptions::new()
         .host(&settings.host)
@@ -111,6 +112,7 @@ pub async fn sync_config(pool: &PgPool, controllers: &mut [Controller], all_yaml
     Ok(())
 }
 
+/// Счётчики синхронизации тегов с YAML (для строки в журнале).
 #[derive(Default)]
 struct SyncCounts {
     created: u64,
@@ -118,6 +120,7 @@ struct SyncCounts {
     deleted: u64,
 }
 
+/// Транзакция синхронизации.
 type Tx<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
 /// Контроллер по имени: вставить или обновить; id из БД.
@@ -171,6 +174,7 @@ async fn sync_tags(tx: &mut Tx<'_>, ctrl: &mut Controller, counts: &mut SyncCoun
     Ok(())
 }
 
+/// Обновить все поля тега по номеру (YAML — источник истины).
 async fn update_tag(tx: &mut Tx<'_>, id: i64, t: &Tag) -> Result<()> {
     sqlx::query(
         "UPDATE tags SET name=$2, data_type=$3, polling_rate=$4, unit=$5, enabled=$6, min_value=$7,
@@ -206,6 +210,7 @@ async fn update_tag(tx: &mut Tx<'_>, id: i64, t: &Tag) -> Result<()> {
     Ok(())
 }
 
+/// Вставить тег и вернуть его номер; режим `record_device` не используется и всегда выключен.
 async fn insert_tag(tx: &mut Tx<'_>, controller_id: i64, t: &Tag) -> Result<i64> {
     let row = sqlx::query(
         "INSERT INTO tags (controller_id, node_id, name, data_type, polling_rate, unit, enabled, min_value,
@@ -247,13 +252,21 @@ async fn insert_tag(tx: &mut Tx<'_>, controller_id: i64, t: &Tag) -> Result<i64>
 
 /// Строка журнала для вставки.
 pub struct EventRow {
+    /// Момент события.
     pub time: DateTime<Utc>,
+    /// Тип события (`CONNECTION`, `COMMAND`, `ALARM`…).
     pub event_type: String,
+    /// Источник события.
     pub source: String,
+    /// Важность: `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
     pub severity: String,
+    /// Текст; в БД усекается до 500 символов.
     pub message: String,
+    /// Номер тега в БД, если событие о теге.
     pub tag_id: Option<i64>,
+    /// Номер контроллера в БД, если событие о контроллере.
     pub controller_id: Option<i64>,
+    /// Подробности — JSON текстом; `None`, если их нет.
     pub details: Option<String>,
 }
 
@@ -285,21 +298,33 @@ pub async fn insert_events(pool: &PgPool, rows: &[EventRow]) -> Result<()> {
 #[derive(Debug, Serialize, FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct EventLogEntry {
+    /// Номер строки журнала.
     pub id: i64,
+    /// Момент события.
     pub event_time: DateTime<Utc>,
+    /// Тип события.
     pub event_type: String,
+    /// Источник.
     pub source: Option<String>,
+    /// Важность.
     pub severity: Option<String>,
+    /// Текст.
     pub message: Option<String>,
+    /// Подробности (JSON текстом).
     pub details: Option<String>,
+    /// Номер тега.
     pub tag_id: Option<i64>,
+    /// Номер контроллера.
     pub controller_id: Option<i64>,
+    /// Кто квитировал аларм.
     pub user_id: Option<String>,
+    /// Квитирован ли аларм (для событий типа `ALARM`).
     pub acknowledged: Option<bool>,
 }
 
 /// Выборка журнала для REST. Всегда с LIMIT (Java-шлюз читал таблицу целиком).
 pub async fn events(pool: &PgPool, filter: EventFilter<'_>, limit: i64) -> Result<Vec<EventLogEntry>> {
+    /// Колонки журнала: общее начало всех выборок.
     const COLS: &str = "SELECT id, event_time, event_type, source, severity, message, details, tag_id, controller_id, user_id, acknowledged FROM event_log";
     let limit = limit.clamp(1, 1000);
     let rows = match filter {
@@ -336,10 +361,15 @@ pub async fn events(pool: &PgPool, filter: EventFilter<'_>, limit: i64) -> Resul
     Ok(rows)
 }
 
+/// Какие события вернуть из журнала.
 pub enum EventFilter<'a> {
+    /// Все.
     All,
+    /// Только этого типа.
     Type(&'a str),
+    /// Только этой важности.
     Severity(&'a str),
+    /// Неквитированные события важности `CRITICAL`.
     UnacknowledgedCritical,
 }
 
@@ -371,6 +401,7 @@ pub async fn event_stats(pool: &PgPool) -> Result<(i64, i64, i64, i64)> {
     Ok((row.get("total"), row.get("errors"), row.get("warnings"), unacked))
 }
 
+/// Отвечает ли БД (простой запрос с таймаутом 2 с); для `/actuator/health`.
 pub async fn ping(pool: &PgPool) -> bool {
     tokio::time::timeout(Duration::from_secs(2), sqlx::query("SELECT 1").execute(pool))
         .await
@@ -382,9 +413,13 @@ pub async fn ping(pool: &PgPool) -> bool {
 
 /// Точка истории.
 pub struct TelemetryRow {
+    /// Номер тега в БД.
     pub tag_id: i64,
+    /// Момент снятия значения.
     pub time: DateTime<Utc>,
+    /// `GOOD` или `BAD`.
     pub quality: &'static str,
+    /// Значение; `None` — кадр BAD.
     pub value: Option<TagValue>,
 }
 

@@ -8,8 +8,10 @@ use prometheus::{
     Encoder, Histogram, HistogramOpts, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry, TextEncoder,
 };
 
+/// Все метрики шлюза. Поля увеличиваются из любого места; регистрация и текстовый вывод — внутри.
 pub struct Metrics {
     registry: Registry,
+    /// Точки телеметрии, поставленные в очередь Kafka.
     pub telemetry_sent: IntCounter,
     /// Значения, не ушедшие в Kafka по правилам «по исключению» (повтор того же значения).
     pub telemetry_suppressed: IntCounter,
@@ -19,14 +21,22 @@ pub struct Metrics {
     pub poll_seconds: Histogram,
     /// Циклы, не уложившиеся в период опроса (следующий опрос начался позже положенного).
     pub poll_overruns: IntCounter,
+    /// Ошибки пользовательских скриптов по имени скрипта.
     pub script_errors: IntCounterVec,
+    /// Сколько каналов сейчас со скриптами.
     pub scripts_bound_tags: IntGauge,
     ha_active: IntGaugeVec,
+    /// Команды по исходу (`status`).
     pub commands: IntCounterVec,
+    /// Контроллеров на связи сейчас.
     pub controllers_connected: IntGauge,
+    /// Сколько контроллеров настроено.
     pub controllers_total: IntGauge,
+    /// Ошибки постановки в очередь и доставки в Kafka.
     pub kafka_send_errors: IntCounter,
+    /// События, отброшенные при переполнении очереди.
     pub events_dropped: IntCounter,
+    /// Точки истории, отброшенные при переполнении очереди писателя БД.
     pub telemetry_rows_dropped: IntCounter,
     /// Доставка в Kafka восстановилась после сбоя — тегам запущена повторная отправка.
     pub kafka_resyncs: IntCounter,
@@ -45,6 +55,7 @@ impl Default for Metrics {
 }
 
 impl Metrics {
+    /// Создать и зарегистрировать все метрики; на каждой метка `application="scada-gateway"`.
     pub fn new() -> Self {
         let labels = HashMap::from([("application".to_string(), "scada-gateway".to_string())]);
         let registry = Registry::new_custom(None, Some(labels)).expect("реестр метрик");

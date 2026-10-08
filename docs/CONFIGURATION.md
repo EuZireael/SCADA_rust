@@ -1,0 +1,258 @@
+# Справочник по настройке
+
+Полный перечень настроек шлюза: переменные окружения, файл станции `controllers.yaml`, привязки Lua-скриптов
+`scripts.yaml`. Как запускать и что делать при сбоях — `docs/OPERATIONS.md`; как всё устроено — `docs/ARCHITECTURE.md`.
+
+* [Как читаются настройки](#как-читаются-настройки)
+* [Переменные окружения](#переменные-окружения)
+* [controllers.yaml — станция](#controllersyaml--станция)
+* [scripts.yaml — пользовательские скрипты](#scriptsyaml--пользовательские-скрипты)
+* [Что проверяется при запуске](#что-проверяется-при-запуске)
+
+## Как читаются настройки
+
+* Настройки берутся **только из окружения** и `controllers.yaml`; других файлов настроек нет. Изменение любой из них
+  требует перезапуска (кроме скриптов — они перечитываются сами).
+* Имена совпадают с именами Java-шлюза (Spring relaxed binding), поэтому его `docker-compose` работает без правок.
+  Для многих настроек есть второе имя без подчёркиваний (`GATEWAY_COMMANDS_MAXAGEMS` = `GATEWAY_COMMANDS_MAX_AGE_MS`) —
+  оно принимается, но в новых развёртываниях пользуйтесь основным.
+* Пустое значение переменной считается незаданным. Логические значения: `true`, `1`, `yes`, `on` — «да»,
+  всё остальное — «нет». Время — в миллисекундах, если не сказано иное.
+* **Неверное число или неверный режим останавливают запуск** с текстом, какая переменная не так (молча подставить
+  значение по умолчанию значило бы работать не так, как задумал оператор).
+* `controllers.yaml` перед разбором проходит подстановку `${ИМЯ:значение}` и `${ИМЯ}` (обязательная — без неё ошибка).
+
+## Переменные окружения
+
+### Общие и HTTP
+
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `CONTROLLERS_YAML` (или `CONTROLLERS_CONFIG`) | `config/controllers.yaml` | путь к файлу станции; форма `file:/путь` из Java понимается |
+| `SERVER_PORT` | `8888` | порт HTTP (`/actuator/*`, `/api/*`) |
+| `GATEWAY_HTTP_BIND` (или `SERVER_ADDRESS`) | `0.0.0.0` | адрес привязки HTTP; `127.0.0.1` — только локально |
+| `GATEWAY_API_TOKEN` | — | токен REST: `/api/*` требует `Authorization: Bearer <токен>`; без токена открыт (в журнале предупреждение). Короче 16 символов — тоже предупреждение. `/actuator/*` токеном не закрывается |
+| `GATEWAY_API_TOKEN_FILE` | — | то же, токен из файла (секреты Docker); пустой файл — ошибка запуска |
+| `RUST_LOG` | `info,…` | уровни журнала в формате `tracing-subscriber` (`debug`, `scada_gateway::kafka=debug`) |
+| `SIM_HOST`, `PLC_HOST`, `PLC_PORT` и любые другие | — | не настройки шлюза, а переменные для `${…}` в `controllers.yaml` |
+
+### База данных (PostgreSQL)
+
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `DB_ENABLED` | `true` | `false` — шлюз без БД: журнал и история не пишутся, команды только по имени тега |
+| `SPRING_DATASOURCE_URL` (или `DB_URL`) | `jdbc:postgresql://localhost:5433/scada_db` | адрес БД. Понимаются `jdbc:postgresql://`, `postgresql://`, `postgres://`; из параметров — `sslmode`, `sslrootcert`, `ssl`; остальные игнорируются с предупреждением |
+| `SPRING_DATASOURCE_USERNAME` (или `DB_USERNAME`) | `scada_user` | пользователь |
+| `SPRING_DATASOURCE_PASSWORD` (или `DB_PASSWORD`) | `scada_password` | пароль; **смените** (шлюз с паролем по умолчанию запустится) |
+| `DB_SSLMODE` | `prefer` | `disable`, `allow`, `prefer`, `require`, `verify-ca`, `verify-full`; сильнее `sslmode` в адресе |
+| `DB_SSLROOTCERT` | системные | файл корневого сертификата УЦ сервера БД; сильнее `sslrootcert` в адресе |
+
+`ssl=true` в адресе означает `verify-full`, `ssl=false` — `disable` (как в драйвере JDBC); явный `sslmode` сильнее.
+На объекте — `require` или строже.
+
+### Kafka
+
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `KAFKA_ENABLED` | `true` | `false` — без Kafka (опрос идёт, наружу ничего не уходит; несовместимо с `GATEWAY_HA_ENABLED`) |
+| `SPRING_KAFKA_BOOTSTRAP_SERVERS` (или `KAFKA_BOOTSTRAP_SERVERS`) | `localhost:9092` | брокеры |
+| `KAFKA_TOPICS_TELEMETRY` | `scada.tags` | телеметрия |
+| `KAFKA_TOPICS_ALARMS` | `scada-alarms` | алармы |
+| `KAFKA_TOPICS_EVENTS` | `scada-events` | события |
+| `KAFKA_TOPICS_COMMANDS` | `scada-commands` | команды (читаются) |
+| `KAFKA_TOPICS_COMMAND_RESULTS` | `scada-command-results` | результаты команд |
+| `KAFKA_TOPICS_REPLICATION` | `1` | фактор репликации топиков, которые шлюз создаёт сам (на кластере — по числу брокеров). Существующие топики он не трогает |
+| `KAFKA_PUBLISH_EVENTS` | `true` | публиковать события в Kafka |
+| `KAFKA_PUBLISH_ALARMS` | `true` | публиковать алармы в Kafka |
+| `KAFKA_SECURITY_PROTOCOL` | — | `PLAINTEXT`, `SSL`, `SASL_PLAINTEXT`, `SASL_SSL` |
+| `KAFKA_SASL_MECHANISM` | — | `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` (Kerberos/GSSAPI не поддерживается) |
+| `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD` | — | учётные данные SASL |
+| `KAFKA_SSL_CA_LOCATION` | — | корневой сертификат брокера |
+| `KAFKA_SSL_CERTIFICATE_LOCATION`, `KAFKA_SSL_KEY_LOCATION`, `KAFKA_SSL_KEY_PASSWORD` | — | клиентский сертификат и ключ (mTLS) |
+| `KAFKA_CLIENT_<СВОЙСТВО>` | — | любое свойство librdkafka: `KAFKA_CLIENT_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM=none` → `ssl.endpoint.identification.algorithm`; перекрывает именованные. Неизвестное свойство останавливает запуск |
+| `SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL`, `…_SASL_MECHANISM`, `…_SASL_JAAS_CONFIG` | — | как у Java-шлюза; из JAAS берутся `username` и `password` |
+
+Пароли и ключи в журнал и `Debug` не попадают. Свойства безопасности применяются ко всем клиентам шлюза: продюсеру,
+консьюмеру команд, консьюмеру выборов и администратору топиков.
+
+### Публикация «по исключению»
+
+Правила — `docs/TELEMETRY_BY_EXCEPTION.md`.
+
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `GATEWAY_PUBLISH_ENABLED` | `true` | `false` — каждый тег каждый цикл (поведение до «исключения») |
+| `GATEWAY_PUBLISH_DEADBAND` | `0` | абсолютная зона нечувствительности |
+| `GATEWAY_PUBLISH_DEADBAND_PERCENT` | `0` | относительная зона, % от последнего опубликованного значения |
+| `GATEWAY_PUBLISH_MIN_INTERVAL_MS` | `0` | не чаще раза в N мс на тег (антидребезг) |
+| `GATEWAY_PUBLISH_FULL_RESEND_MS` | `30000` | полная отправка неизменившихся значений; `runtime.telemetry.max-silence-ms` монитора должен быть больше |
+| `GATEWAY_SEND_BAD_FRAMES` | `true` | кадр `value=null, quality=BAD` при потере связи |
+
+### Контроллеры и связь
+
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `GATEWAY_OPCUA_OP_TIMEOUT_MS` | `5000` | таймаут операции OPC UA (подключение, чтение, запись) |
+| `GATEWAY_MODBUS_OP_TIMEOUT_MS` | `3000` | таймаут операции Modbus |
+| `GATEWAY_PAC_OP_TIMEOUT_MS` | `3000` | таймаут операции PAC |
+| `GATEWAY_STALE_AFTER_MS` | `30000` | нет удачных чтений дольше — связь считается потерянной, сессия OPC UA пересоздаётся |
+| `GATEWAY_SUPERVISE_INTERVAL_MS` | `10000` | пауза между попытками подключения к OPC UA |
+| `GATEWAY_HEALTH_LOG_INTERVAL_MS` | `60000` | как часто писать в журнал сводку «кто на связи» |
+| `GATEWAY_HEARTBEAT_INTERVAL_MS` | `30000` | как часто слать событие `HEARTBEAT` |
+| `GATEWAY_OPCUA_PKI_DIR` | `<tmp>/scada-gateway-pki` | хранилище сертификатов OPC UA (`own/`, `private/`, `trusted/`, `rejected/`); в образе — `/app/pki` (том) |
+| `GATEWAY_OPCUA_TRUST_SERVER_CERTS` | `false` | доверять любому сертификату сервера. **Только для стенда**: без проверки сервера защищённый канал не защищает от подмены |
+
+### Команды
+
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `GATEWAY_COMMANDS_MAX_AGE_MS` | `30000` | команда старше не исполняется (`REJECTED_EXPIRED`) |
+| `GATEWAY_COMMANDS_VERIFY_MS` | `0` | через сколько мс после записи по OPC UA перечитать узел; значение не изменилось — `FAILED_NOT_APPLIED`. `0` — не проверять |
+
+### Алармы и история
+
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `GATEWAY_ALARMS_ENABLED` | `false` | алармы по `minValue`/`maxValue` тегов (по умолчанию их считает монитор) |
+| `GATEWAY_PERSIST_TELEMETRY` | `false` | писать значения в таблицу `telemetry` (≈15 ГБ/сутки на станцию) |
+| `GATEWAY_TELEMETRY_RETENTION_HOURS` | `72` | срок хранения истории |
+| `GATEWAY_HISTORY_DEADBAND`, `…_DEADBAND_PERCENT`, `…_MIN_INTERVAL_MS` | `0` | фильтр истории; тег переопределяет блоком `history:` |
+| `GATEWAY_HISTORY_MAX_INTERVAL_MS` | `600000` | «пульс» истории: точка раз в столько, даже если значение стоит; `0` — выключен |
+
+### Горячее резервирование
+
+Устройство — `docs/ARCHITECTURE.md`, поведение при сбоях — `docs/OPERATIONS.md`.
+
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `GATEWAY_HA_ENABLED` | `false` | включить пару (нужна Kafka) |
+| `GATEWAY_HA_INSTANCE_ID` | `<HOSTNAME>-<pid>` | имя экземпляра в журнале и событиях |
+| `GATEWAY_HA_GROUP_ID` | `scada-gateway-ha.<топик команд>` | группа выборов; у пары одинаковая |
+| `GATEWAY_HA_TOPIC` | `scada-gateway-ha` | служебный топик выборов (одна партиция, шлюз создаёт сам) |
+| `GATEWAY_HA_SESSION_TIMEOUT_MS` | `6000` | время обнаружения отказа активного; брокеру нужен `group.min.session.timeout.ms` ≤ значения |
+| `GATEWAY_HA_HEARTBEAT_INTERVAL_MS` | `1000` | период heartbeat группы |
+| `GATEWAY_HA_YIELD_AFTER_MS` | `30000` | «слепой» активный (связь потеряна со всеми контроллерами) передаёт лидерство партнёру; `0` — выключено |
+
+### Lua-скрипты
+
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `GATEWAY_SCRIPTS_DIR` | `scripts` (в образе `/app/scripts`) | папка со `scripts.yaml` и `.lua`-файлами |
+| `GATEWAY_SCRIPTS_TIMEOUT_MS` | `50` | лимит времени одного вызова скрипта |
+| `GATEWAY_SCRIPTS_RELOAD_INTERVAL_MS` | `5000` | как часто проверять папку на изменения |
+
+## controllers.yaml — станция
+
+Корень — `opcua.servers` (название осталось от Java-шлюза; в списке могут быть контроллеры любого протокола).
+
+```yaml
+opcua:
+  servers:
+    - id: phoenix-001                     # не используется, оставлено для совместимости формата
+      name: "Phoenix Contact"             # уникальное имя контроллера
+      endpoint: "opc.tcp://${PLC_HOST}:4840"
+      security: "Basic256Sha256"          # только OPC UA; по умолчанию None
+      username: "gateway"                 # только OPC UA; вместе с password
+      password: "${PLC_PASSWORD}"
+      enabled: true                       # по умолчанию false!
+      tags:
+        - name: "Площадка.Станция.Модуль.LINE1V0.ST"   # уникальное имя: ключ Kafka и адрес команды
+          nodeId: "ns=2;s=6"                            # адрес в контроллере (уникален в пределах контроллера)
+          dataType: INT32
+          enabled: true                                 # по умолчанию false!
+          pollingRate: 1000
+          writable: false
+          channelId: 6
+          deviceName: LINE1V0
+          fieldName: ST
+          unit: "°C"
+          minValue: 0
+          maxValue: 100
+          history: {deadband: 0.5, deadbandPercent: 1, minIntervalMs: 60000, maxIntervalMs: 600000}
+```
+
+### Контроллер
+
+| Поле | Обязательно | Назначение |
+|---|---|---|
+| `name` | да | уникальное имя; по нему контроллер связывается с таблицей `controllers` |
+| `endpoint` | да | протокол определяется **по началу адреса**: `opc.tcp://host:порт`, `modbus://host:порт` (по умолчанию 502), `pac://host:порт`. Неизвестная схема — ошибка |
+| `enabled` | — | **по умолчанию `false`**: выключенный контроллер не опрашивается и не проверяется; из БД не удаляется |
+| `security` | — | только OPC UA. `None`; политика `Basic256Sha256`, `Aes128_Sha256_RsaOaep`, `Aes256_Sha256_RsaPss`, `Basic256`, `Basic128Rsa15`; к ней необязательный режим `_Sign` или `_SignAndEncrypt` (по умолчанию `SignAndEncrypt`). Регистр, `_`, `-` и пробелы не важны |
+| `username`, `password` | — | только OPC UA, задаются **вместе**. На канале `None` идут открытым текстом (предупреждение) |
+| `id` | — | не используется |
+| `tags` | — | список тегов |
+
+`security`/`username`/`password` у Modbus и PAC — ошибка запуска: защиты на уровне этих протоколов нет, и делать вид, что
+она есть, нельзя.
+
+### Тег
+
+| Поле | Обязательно | Назначение |
+|---|---|---|
+| `name` | да | полный путь канала: **ключ сообщения Kafka и адрес команды**. Уникален на всю станцию |
+| `nodeId` | да | адрес в контроллере: OPC UA — `ns=2;s=6`; PAC и Modbus — любой уникальный ключ (в конфигурации станции — `pac:385`, `modbus:40001`). **Уникален в пределах контроллера** — по нему тег связывается со строкой БД |
+| `dataType` | да | тип по началу имени: `BOOL…` — логический; `INT…` — целый; `FLOAT…`, `REAL…`, `DOUBLE…` — вещественный; `STRING…` — строка. Тип определяет приведение значения команды и декодирование Modbus |
+| `enabled` | — | **по умолчанию `false`**: выключенный тег не опрашивается |
+| `pollingRate` | — | период опроса, мс. Период цикла контроллера — **наименьший положительный** `pollingRate` его тегов (не меньше 100 мс; без значений — 1000 мс). Теги с большим значением опрашиваются тем же циклом |
+| `writable` | — | можно ли писать командой. Modbus не пишется никогда, независимо от значения |
+| `protocol` | — | `opcua` (по умолчанию), `modbus`, `pac`. **Должен совпадать с протоколом контроллера**, иначе ошибка запуска (иначе тег никто не опрашивал бы) |
+| `channelId` | — | номер канала в базе монитора (информационно, в БД) |
+| `deviceName`, `fieldName` | PAC: да | прибор и поле в снимке PAC (`LINE1V0` / `ST`, `RT_PAR_F[12]`, `PAR_MAIN[1].P_CZAD_S`). Допустимы буквы, цифры, `_`, `[`, `]`, `.` — значения подставляются в Lua-текст команды. Остальные протоколы — метаданные |
+| `deviceType` | — | тип прибора (метаданные, доступны скриптам) |
+| `unit` | — | единица измерения |
+| `minValue`, `maxValue` | — | пределы для аларма (`GATEWAY_ALARMS_ENABLED=true`) |
+| `modbusAddress` | Modbus: да | адрес holding-регистра в нотации 4xxxx: от `40001` до `105536` (для 32-битного — до `105535`) |
+| `modbusUnitId` | — | Unit ID (по умолчанию 1). **Один на контроллер** — разные значения у тегов одного контроллера не принимаются |
+| `modbusType` | — | информационно (в БД); декодирование идёт по `dataType` |
+| `history` | — | переопределение фильтра истории тега: `deadband`, `deadbandPercent`, `minIntervalMs`, `maxIntervalMs` |
+
+Modbus-декодирование: `FLOAT` — два регистра (младший первым, как `struct.pack('<f')`); целые — регистр со знаком
+(int16); `BOOL` — регистр ≠ 0.
+
+### Подстановка `${…}`
+
+`${ИМЯ:значение}` — значение из окружения или указанное по умолчанию (пустое `${ИМЯ:}` допустимо); `${ИМЯ}` без
+умолчания **обязательна** — без неё запуск не пройдёт, а не подставится пустая строка. Подстановка текстовая и идёт до
+разбора YAML: пароль со спецсимволами (`#`, `:`, кавычки) берите в кавычки (`password: "${PLC_PASSWORD}"`).
+
+## scripts.yaml — пользовательские скрипты
+
+Лежит в `GATEWAY_SCRIPTS_DIR` вместе с `.lua`-файлами. Полное описание контракта скрипта — в шапке
+`config/scripts/scripts.yaml`, примеры — `sensor_break.lua`, `scale.lua`, `deadband.lua` там же.
+
+```yaml
+scripts:
+  - script: scale.lua                    # файл в этой папке (вне папки — ошибка)
+    tags: ["*.M_P_ON_TIME.LINE?M*.P_ON_TIME"]   # маски имён тегов: * — любые символы, ? — один, остальное буквально
+    params: {k: 0.001, b: 0}             # доступны скрипту как ctx.params
+    enabled: true                        # false — привязка временно выключена
+```
+
+* `process(value, quality, ctx)` вызывается на **каждое** снятое значение до фильтра публикации, алармов и истории;
+  возвращает значение и (необязательно) качество `"GOOD"`/`"BAD"`. У кадра BAD `value = nil`.
+* `write(value, ctx)` (необязательно) пересчитывает значение команды оператора в значение для ПЛК; цепочка идёт в
+  обратном порядке.
+* `ctx`: `tag`, `device`, `field`, `device_type`, `data_type`, `unit`, `params`, `timestamp` (мс), `state` — таблица
+  канала, живёт между вызовами.
+* Несколько привязок на канал — цепочка в порядке файла. Ошибка или превышение времени — кадр `BAD`; после трёх
+  превышений подряд скрипт отключается на 30 с.
+* Изменения папки подхватываются без перезапуска; версия с ошибкой не применяется (работает прежняя, событие `SCRIPT`).
+  Ошибка в скриптах при запуске — отказ запуска. Состояние — `GET /api/scripts`.
+
+## Что проверяется при запуске
+
+Шлюз отказывается стартовать (и пишет, что исправить), если:
+
+* не задана обязательная `${ПЕРЕМЕННАЯ}` или не читается `controllers.yaml`;
+* имена контроллеров или включённых тегов повторяются или пусты;
+* схема `endpoint` неизвестна;
+* `security` не разбирается; `username` без `password` и наоборот; защита задана у Modbus или PAC;
+* протокол тега не совпадает с протоколом контроллера;
+* `nodeId` повторяется в пределах контроллера;
+* у PAC-тега нет `deviceName`/`fieldName` или в них недопустимые символы;
+* у Modbus-тега нет `modbusAddress`, он вне 40001…105536 или `modbusUnitId` у тегов контроллера разные;
+* неверное число, время или режим в любой переменной окружения, неверный `sslmode`;
+* `GATEWAY_HA_ENABLED=true` при выключенной Kafka;
+* ошибка в `scripts.yaml` или `.lua` при первой загрузке;
+* HTTP-порт занят.

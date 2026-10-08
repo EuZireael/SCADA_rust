@@ -19,15 +19,22 @@ use crate::opcua::OpcConnection;
 use crate::pac::PacConnection;
 use crate::script::Scripts;
 
+/// Связь ещё не проверялась (после запуска).
 const LINK_UNKNOWN: u8 = 0;
+/// Последнее чтение удалось.
 const LINK_UP: u8 = 1;
+/// Связь потеряна.
 const LINK_DOWN: u8 = 2;
 
 /// Контроллер + живое состояние связи + соединение для записи команд.
 pub struct ControllerHandle {
+    /// Контроллер и его теги (неизменяемая конфигурация).
     pub ctrl: Controller,
+    /// Состояние связи: одна из `LINK_*`.
     link: AtomicU8,
+    /// Момент последнего удачного чтения, мс от начала эпохи: по нему определяется «давно нет данных».
     last_good_ms: AtomicI64,
+    /// Ошибок подряд: чтобы раз в 30 ошибок напоминать в журнале, пока контроллер недоступен.
     error_streak: AtomicU32,
     /// Текущая OPC UA-сессия (её же использует запись команд).
     pub opc: Mutex<Option<Arc<OpcConnection>>>,
@@ -36,6 +43,7 @@ pub struct ControllerHandle {
 }
 
 impl ControllerHandle {
+    /// Обработчик контроллера: связь «неизвестна», серия ошибок нулевая.
     pub fn new(ctrl: Controller) -> Self {
         ControllerHandle {
             ctrl,
@@ -52,6 +60,7 @@ impl ControllerHandle {
         self.link.load(Ordering::Relaxed) == LINK_DOWN
     }
 
+    /// Связь установлена (последнее чтение удалось).
     pub fn is_connected(&self) -> bool {
         self.link.load(Ordering::Relaxed) == LINK_UP
     }
@@ -66,54 +75,78 @@ impl ControllerHandle {
         self.last_good_ms.store(now_ms(), Ordering::Relaxed);
     }
 
+    /// Текущая OPC UA-сессия, если она есть (её же использует запись команд).
     pub fn opc_connection(&self) -> Option<Arc<OpcConnection>> {
         self.opc.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
+    /// Запомнить новую сессию или `None` после её закрытия.
     pub fn set_opc_connection(&self, conn: Option<Arc<OpcConnection>>) {
         *self.opc.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = conn;
     }
 }
 
+/// Текущее время, мс от начала эпохи.
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
 /// Где искать тег для команды.
 pub struct TagRef {
+    /// Найденный тег.
     pub tag: Arc<Tag>,
+    /// Контроллер, которому тег принадлежит.
     pub controller: Arc<ControllerHandle>,
 }
 
+/// Состояние процесса, общее для всех задач: настройки, выходы наружу (Kafka, БД, события), контроллеры, роль в паре, скрипты.
 pub struct App {
+    /// Настройки процесса.
     pub settings: Settings,
+    /// Метрики Prometheus.
     pub metrics: Arc<Metrics>,
+    /// Продюсер Kafka; `None`, если Kafka выключена.
     pub kafka: Option<Arc<KafkaOut>>,
+    /// Отправитель событий журнала.
     pub events: EventSink,
+    /// Очередь строк истории; `None`, если история не пишется.
     pub telemetry: Option<TelemetrySink>,
+    /// Пул БД; `None` без БД.
     pub db: Option<PgPool>,
+    /// Включённые контроллеры в порядке конфигурации.
     pub controllers: Vec<Arc<ControllerHandle>>,
     /// Роль в паре горячего резерва (без резервирования — всегда активный).
     pub leadership: Arc<Leadership>,
     /// Пользовательские Lua-скрипты обработки значений.
     pub scripts: Arc<Scripts>,
+    /// Тег и номер его контроллера по имени (команды монитора).
     by_name: HashMap<String, (Arc<Tag>, usize)>,
+    /// То же по номеру в БД.
     by_id: HashMap<i64, (Arc<Tag>, usize)>,
+    /// Момент запуска (для `uptime`).
     pub started: Instant,
 }
 
 /// Всё, что шлюз собирает до создания [`App`]: выходы в Kafka и БД, роль в паре, скрипты.
 pub struct AppDeps {
+    /// Метрики.
     pub metrics: Arc<Metrics>,
+    /// Продюсер Kafka.
     pub kafka: Option<Arc<KafkaOut>>,
+    /// Отправитель событий.
     pub events: EventSink,
+    /// Очередь истории.
     pub telemetry: Option<TelemetrySink>,
+    /// Пул БД.
     pub db: Option<PgPool>,
+    /// Роль экземпляра в паре.
     pub leadership: Arc<Leadership>,
+    /// Пользовательские скрипты.
     pub scripts: Arc<Scripts>,
 }
 
 impl App {
+    /// Собрать состояние: обработчики контроллеров и индексы тегов по имени и по номеру (для команд).
     pub fn new(settings: Settings, deps: AppDeps, controllers: Vec<Controller>) -> Self {
         let AppDeps { metrics, kafka, events, telemetry, db, leadership, scripts } = deps;
         let controllers: Vec<Arc<ControllerHandle>> =
@@ -145,14 +178,17 @@ impl App {
         }
     }
 
+    /// Тег по имени (так адресует команды монитор).
     pub fn tag_by_name(&self, name: &str) -> Option<TagRef> {
         self.by_name.get(name).map(|(t, i)| TagRef { tag: t.clone(), controller: self.controllers[*i].clone() })
     }
 
+    /// Тег по номеру в БД (так адресует команды старый монитор); теги без БД имеют номер 0 и не находятся.
     pub fn tag_by_id(&self, id: i64) -> Option<TagRef> {
         self.by_id.get(&id).map(|(t, i)| TagRef { tag: t.clone(), controller: self.controllers[*i].clone() })
     }
 
+    /// Число включённых тегов станции.
     pub fn tag_count(&self) -> usize {
         self.by_name.len()
     }
@@ -202,6 +238,7 @@ impl App {
         !self.controllers.is_empty() && self.controllers.iter().all(|c| c.is_down())
     }
 
+    /// Пересчитать метрику «контроллеров на связи».
     fn update_connected_gauge(&self) {
         let up = self.controllers.iter().filter(|c| c.is_connected()).count();
         self.metrics.controllers_connected.set(up as i64);

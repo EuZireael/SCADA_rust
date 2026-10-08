@@ -11,13 +11,21 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{debug, info};
 
+/// Размер адресного пространства: 65 536 регистров.
 const REGISTERS: usize = 0x1_0000;
+/// Функция 03: чтение holding-регистров.
 const FC_READ_HOLDING: u8 = 3;
+/// Функция 04: чтение input-регистров (то же хранилище).
 const FC_READ_INPUT: u8 = 4;
+/// Функция 06: запись одного регистра.
 const FC_WRITE_SINGLE: u8 = 6;
+/// Функция 16: запись нескольких регистров.
 const FC_WRITE_MULTIPLE: u8 = 16;
+/// Исключение 1: функция не поддерживается.
 const EX_ILLEGAL_FUNCTION: u8 = 1;
+/// Исключение 2: адрес вне диапазона.
 const EX_ILLEGAL_ADDRESS: u8 = 2;
+/// Исключение 3: неверное значение (например, слишком много регистров).
 const EX_ILLEGAL_VALUE: u8 = 3;
 /// Предел спецификации: ответ FC03 — до 125 регистров, запрос FC16 — до 123.
 const MAX_READ: u16 = 125;
@@ -35,6 +43,7 @@ impl Default for Registers {
 }
 
 impl Registers {
+    /// Регистры, заполненные нулями.
     pub fn new() -> Self {
         Registers { regs: Mutex::new(vec![0; REGISTERS]) }
     }
@@ -55,6 +64,7 @@ impl Registers {
     }
 }
 
+/// Ответ-исключение: код функции с установленным старшим битом и код ошибки.
 fn exception(fc: u8, code: u8) -> Vec<u8> {
     vec![fc | 0x80, code]
 }
@@ -102,6 +112,7 @@ pub fn process(regs: &Registers, pdu: &[u8]) -> Vec<u8> {
     }
 }
 
+/// Обслужить одно TCP-соединение: кадры MBAP, ответ на каждый запрос, пока клиент не закроет соединение.
 async fn handle(mut stream: TcpStream, regs: Arc<Registers>) -> Result<()> {
     loop {
         let mut mbap = [0u8; 7];

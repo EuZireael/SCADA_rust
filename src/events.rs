@@ -23,6 +23,7 @@ pub struct Throttle {
 }
 
 impl Throttle {
+    /// Не чаще одного раза в `every`.
     pub fn new(every: Duration) -> Self {
         Throttle { every, last: std::sync::Mutex::new(None) }
     }
@@ -47,19 +48,29 @@ use crate::messages::EventMessage;
 use crate::metrics::Metrics;
 use crate::model::Timestamp;
 
+/// Событие журнала шлюза: уходит в `event_log`, в Kafka и в REST.
 #[derive(Debug, Clone)]
 pub struct Event {
+    /// Тип: `CONNECTION`, `QUALITY_CHANGE`, `COMMAND`, `ALARM`, `ALARM_CLEARED`, `HEARTBEAT`, `SCRIPT`, `SYSTEM`, `HA`.
     pub event_type: String,
+    /// Источник.
     pub source: String,
+    /// Важность: `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
     pub severity: String,
+    /// Текст для оператора.
     pub message: String,
+    /// Номер тега в БД, если событие о теге.
     pub tag_id: Option<i64>,
+    /// Номер контроллера в БД, если событие о контроллере.
     pub controller_id: Option<i64>,
+    /// Подробности — JSON-объект.
     pub details: Value,
+    /// Момент события.
     pub time: Timestamp,
 }
 
 impl Event {
+    /// Событие с пустыми подробностями и текущим временем.
     pub fn new(event_type: &str, source: &str, severity: &str, message: impl Into<String>) -> Self {
         Event {
             event_type: event_type.into(),
@@ -73,16 +84,19 @@ impl Event {
         }
     }
 
+    /// Подробности события (JSON-объект).
     pub fn details(mut self, details: Value) -> Self {
         self.details = details;
         self
     }
 
+    /// Привязать к контроллеру (номер ≤ 0 — не привязывать).
     pub fn controller(mut self, id: i64) -> Self {
         self.controller_id = (id > 0).then_some(id);
         self
     }
 
+    /// Привязать к тегу (номер ≤ 0 — не привязывать).
     pub fn tag(mut self, id: i64) -> Self {
         self.tag_id = (id > 0).then_some(id);
         self
@@ -97,6 +111,7 @@ pub struct EventSink {
 }
 
 impl EventSink {
+    /// Поставить событие в очередь, не блокируясь: при переполнении оно отбрасывается и считается в `scada_events_dropped_total`.
     pub fn emit(&self, event: Event) {
         if self.tx.try_send(event).is_err() {
             self.metrics.events_dropped.inc();
@@ -104,6 +119,7 @@ impl EventSink {
     }
 }
 
+/// Очередь событий на 10 000 штук: отправитель для всего шлюза и приёмник для писателя.
 pub fn channel(metrics: Arc<Metrics>) -> (EventSink, mpsc::Receiver<Event>) {
     let (tx, rx) = mpsc::channel(10_000);
     (EventSink { tx, metrics }, rx)
@@ -217,6 +233,7 @@ impl TelemetrySink {
     }
 }
 
+/// Очередь строк истории: отправитель для обработчиков значений и приёмник для писателя.
 pub fn telemetry_channel(metrics: Arc<Metrics>) -> (TelemetrySink, mpsc::Receiver<Vec<TelemetryRow>>) {
     let (tx, rx) = mpsc::channel(64);
     (TelemetrySink { tx, metrics }, rx)

@@ -30,6 +30,7 @@ use crate::model::{self, OpcMode, OpcPolicy, OpcSecurity, Quality, TagValue, Tim
 /// Узлов в одном запросе чтения.
 pub const READ_CHUNK: usize = 500;
 
+/// Живое соединение с OPC UA-сервером: сессия и задача её цикла событий. Закрывается [`OpcConnection::close`].
 pub struct OpcConnection {
     session: Arc<Session>,
     event_loop: JoinHandle<StatusCode>,
@@ -86,7 +87,9 @@ async fn pick_address(addrs: &[SocketAddr], probe_timeout: Duration) -> Option<S
 /// Как подключаться к одному OPC UA-серверу: защита канала, пользователь, хранилище сертификатов.
 #[derive(Debug, Clone)]
 pub struct ConnectOptions {
+    /// Политика и режим канала, пользователь.
     pub security: OpcSecurity,
+    /// Хранилище сертификатов клиента.
     pub pki_dir: std::path::PathBuf,
     /// Доверять любому сертификату сервера. Для канала без защиты не имеет значения.
     pub trust_server_certs: bool,
@@ -102,6 +105,7 @@ impl ConnectOptions {
         }
     }
 
+    /// Параметры контроллера: его защита плюс общие для процесса хранилище сертификатов и доверие к серверам.
     pub fn for_controller(security: &OpcSecurity, settings: &crate::config::GatewaySettings) -> Self {
         ConnectOptions {
             security: security.clone(),
@@ -111,6 +115,7 @@ impl ConnectOptions {
     }
 }
 
+/// Наша политика безопасности → политика async-opcua.
 fn security_policy(p: OpcPolicy) -> SecurityPolicy {
     match p {
         OpcPolicy::None => SecurityPolicy::None,
@@ -122,6 +127,7 @@ fn security_policy(p: OpcPolicy) -> SecurityPolicy {
     }
 }
 
+/// Наш режим защиты → режим async-opcua.
 fn message_mode(m: OpcMode) -> MessageSecurityMode {
     match m {
         OpcMode::None => MessageSecurityMode::None,
@@ -136,6 +142,7 @@ impl OpcConnection {
         Self::connect_with(url, op_timeout, &ConnectOptions::insecure()).await
     }
 
+    /// Подключиться с заданной защитой: подобрать адрес, выбрать конечную точку, дождаться сессии не дольше `op_timeout`.
     pub async fn connect_with(url: &str, op_timeout: Duration, opts: &ConnectOptions) -> Result<Self> {
         let url = reachable_url(url, op_timeout.min(PROBE_TIMEOUT)).await;
         let url = url.as_str();
@@ -240,6 +247,7 @@ impl OpcConnection {
         statuses.into_iter().next().context("сервер не вернул статус записи")
     }
 
+    /// Закрыть сессию (с таймаутом) и остановить её цикл событий.
     pub async fn close(&self) {
         let _ = timeout(self.op_timeout, self.session.disconnect()).await;
         self.event_loop.abort();
@@ -251,6 +259,7 @@ pub fn read_value_id(node_id: &str) -> Result<ReadValueId> {
     Ok(ReadValueId::from(parse_node_id(node_id)?))
 }
 
+/// Разобрать `ns=2;s=6` в `NodeId`.
 pub fn parse_node_id(node_id: &str) -> Result<NodeId> {
     node_id.parse::<NodeId>().map_err(|_| anyhow!("некорректный nodeId: {node_id}"))
 }
@@ -269,6 +278,7 @@ pub fn reading(dv: &DataValue) -> (Option<TagValue>, Quality, Timestamp) {
     (value, if good { Quality::Good } else { Quality::Bad }, ts)
 }
 
+/// Значение узла → [`TagValue`]; типы, которых у тега быть не может (массивы, структуры), дают `None`.
 pub fn extract_value(v: &Variant) -> Option<TagValue> {
     Some(match v {
         Variant::Boolean(b) => TagValue::Bool(*b),
