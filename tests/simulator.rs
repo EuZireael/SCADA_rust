@@ -178,23 +178,24 @@ async fn pac_write_applies_and_unknown_device_is_rejected() {
     let (host, port) = pac::endpoint(&ctrl.endpoint);
     let mut conn = PacConnection::connect(&host, port, OP_TIMEOUT).await.expect(NEED_SIM);
 
-    // LINE1V0.M — чистый актуатор: пишем противоположное и возвращаем как было.
+    // LINE1V2.M — чистый актуатор: пишем противоположное и возвращаем как было. Не LINE1V0: тесты файла идут
+    // параллельно, и LINE1V0 занят проверкой клапана под управлением программы.
     conn.poll_states().await.unwrap();
-    let before = conn.read_value("LINE1V0", "M", "INT32").expect("LINE1V0.M в снимке");
+    let before = conn.read_value("LINE1V2", "M", "INT32").expect("LINE1V2.M в снимке");
     let target = toggled(&before);
-    assert_eq!(conn.exec_command("LINE1V0", "M", &target).await.unwrap(), 0, "PAC применяет set_cmd");
+    assert_eq!(conn.exec_command("LINE1V2", "M", &target).await.unwrap(), 0, "PAC применяет set_cmd");
     // Снимок симулятор обновляет раз в update_rate (~0,5 с).
     let mut seen = None;
     for _ in 0..12 {
         tokio::time::sleep(Duration::from_millis(300)).await;
         conn.poll_states().await.unwrap();
-        seen = conn.read_value("LINE1V0", "M", "INT32");
+        seen = conn.read_value("LINE1V2", "M", "INT32");
         if seen.as_ref() == Some(&target) {
             break;
         }
     }
     assert_eq!(seen, Some(target), "после записи M должен смениться");
-    assert_eq!(conn.exec_command("LINE1V0", "M", &before).await.unwrap(), 0);
+    assert_eq!(conn.exec_command("LINE1V2", "M", &before).await.unwrap(), 0);
 
     assert_ne!(
         conn.exec_command("NO_SUCH_DEVICE", "M", &TagValue::Int(1)).await.unwrap(),
