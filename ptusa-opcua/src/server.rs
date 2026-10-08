@@ -170,6 +170,57 @@ pub fn parse_bind(bind: &str) -> Result<(String, u16)> {
     Ok((host.to_string(), port.parse().with_context(|| format!("адрес привязки {bind:?}: порт"))?))
 }
 
+/// Объект `PAC`, объект на прибор и переменная на канал; возвращает число приборов.
+fn populate(manager: &SimpleNodeManager, ns: u16, channels: &[Channel]) -> usize {
+    let mut devices: HashMap<&str, NodeId> = HashMap::new();
+    let mut space = manager.address_space().write();
+    let root = NodeId::new(ns, "PAC");
+    ObjectBuilder::new(&root, "PAC", "PAC").organized_by(NodeId::from(ObjectId::ObjectsFolder)).insert(&mut *space);
+    for ch in channels {
+        let parent = devices
+            .entry(ch.device.as_str())
+            .or_insert_with(|| {
+                let id = NodeId::new(ns, ch.device.clone());
+                ObjectBuilder::new(&id, ch.device.clone(), ch.device.clone())
+                    .organized_by(root.clone())
+                    .insert(&mut *space);
+                id
+            })
+            .clone();
+        let id = NodeId::new(ns, ch.node_name.clone());
+        // Имя переменной — поле внутри прибора (`ST`, `RT_PAR_F[12]`).
+        let browse = ch.node_name.split_once('.').map_or(ch.node_name.as_str(), |(_, f)| f).to_string();
+        let mut builder = VariableBuilder::new(&id, browse.clone(), browse)
+            .data_type(data_type_id(ch.kind))
+            .value(initial(ch.kind))
+            .organized_by(parent);
+        if ch.writable {
+            builder = builder.writable();
+        }
+        builder.insert(&mut *space);
+    }
+    devices.len()
+}
+
+/// Запись клиента: сначала команда прошивке, статус записи — её исход. Значение узла не трогаем:
+/// оно придёт из следующего снимка.
+fn add_write_callbacks(
+    manager: &SimpleNodeManager,
+    ns: u16,
+    channels: &[Channel],
+    pac: &Arc<PacClient>,
+    stats: &Arc<Stats>,
+) {
+    let rt = tokio::runtime::Handle::current();
+    for ch in channels.iter().filter(|c| c.writable) {
+        let (ch_cb, pac, stats, rt) = (ch.clone(), pac.clone(), stats.clone(), rt.clone());
+        manager.inner().add_write_callback(NodeId::new(ns, ch.node_name.clone()), move |dv: DataValue, _range| {
+            let Some(value) = dv.value else { return StatusCode::BadTypeMismatch };
+            tokio::task::block_in_place(|| rt.block_on(command(&ch_cb, &value, &pac, &stats)))
+        });
+    }
+}
+
 /// Собирает сервер с адресным пространством из каналов. Сервер надо запустить (`run`).
 ///
 /// `bind` — на чём слушать; `announce` — адрес, который сервер называет в FindServers (сами
@@ -202,52 +253,14 @@ pub fn build(
     let ns = handle.get_namespace_index(NAMESPACE_URI).context("namespace")?;
     ensure!(ns == 2, "namespace должен быть 2, а не {ns}: узлы станции — ns=2;s=<прибор>.<поле>");
 
-    let mut devices: HashMap<&str, NodeId> = HashMap::new();
-    {
-        let mut space = manager.address_space().write();
-        let root = NodeId::new(ns, "PAC");
-        ObjectBuilder::new(&root, "PAC", "PAC").organized_by(NodeId::from(ObjectId::ObjectsFolder)).insert(&mut *space);
-        for ch in channels {
-            let parent = devices
-                .entry(ch.device.as_str())
-                .or_insert_with(|| {
-                    let id = NodeId::new(ns, ch.device.clone());
-                    ObjectBuilder::new(&id, ch.device.clone(), ch.device.clone())
-                        .organized_by(root.clone())
-                        .insert(&mut *space);
-                    id
-                })
-                .clone();
-            let id = NodeId::new(ns, ch.node_name.clone());
-            // Имя переменной — поле внутри прибора (`ST`, `RT_PAR_F[12]`).
-            let browse = ch.node_name.split_once('.').map_or(ch.node_name.as_str(), |(_, f)| f).to_string();
-            let mut builder = VariableBuilder::new(&id, browse.clone(), browse)
-                .data_type(data_type_id(ch.kind))
-                .value(initial(ch.kind))
-                .organized_by(parent);
-            if ch.writable {
-                builder = builder.writable();
-            }
-            builder.insert(&mut *space);
-        }
-    }
-    // Запись клиента: сначала команда прошивке, статус записи — её исход. Значение узла не трогаем:
-    // оно придёт из следующего снимка.
-    let rt = tokio::runtime::Handle::current();
-    for ch in channels.iter().filter(|c| c.writable) {
-        let (ch_cb, pac, stats, rt) = (ch.clone(), pac.clone(), stats.clone(), rt.clone());
-        manager.inner().add_write_callback(NodeId::new(ns, ch.node_name.clone()), move |dv: DataValue, _range| {
-            let Some(value) = dv.value else { return StatusCode::BadTypeMismatch };
-            tokio::task::block_in_place(|| rt.block_on(command(&ch_cb, &value, &pac, &stats)))
-        });
-    }
+    let devices = populate(&manager, ns, channels);
+    add_write_callbacks(&manager, ns, channels, &pac, &stats);
     let pusher = Pusher { handle, manager, ns };
     pusher.push_all_bad(channels, StatusCode::BadWaitingForInitialData);
     info!(
-        "адресное пространство: {} каналов ({} на запись), {} объектов",
+        "адресное пространство: {} каналов ({} на запись), {devices} объектов",
         channels.len(),
         channels.iter().filter(|c| c.writable).count(),
-        devices.len()
     );
     Ok((server, pusher))
 }
