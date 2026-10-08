@@ -338,7 +338,15 @@ impl Timestamp {
     }
 
     pub fn epoch_seconds_text(&self) -> String {
-        format!("{}.{:09}", self.0.timestamp(), self.0.timestamp_subsec_nanos())
+        let mut out = Vec::with_capacity(32);
+        self.write_epoch_seconds(&mut out);
+        String::from_utf8(out).unwrap_or_default()
+    }
+
+    /// То же текстом в буфер, без выделений: `секунды.наносекунды` (девять знаков).
+    pub fn write_epoch_seconds(&self, out: &mut Vec<u8>) {
+        use std::io::Write;
+        let _ = write!(out, "{}.{:09}", self.0.timestamp(), self.0.timestamp_subsec_nanos());
     }
 }
 

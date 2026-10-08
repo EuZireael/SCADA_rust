@@ -159,15 +159,20 @@ impl KafkaOut {
                 return;
             }
         };
+        self.send_raw(topic, key, &payload);
+    }
+
+    /// Отправить готовое тело (JSON).
+    fn send_raw(&self, topic: &str, key: &str, payload: &[u8]) {
         if cfg!(test) {
             self.captured.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((
                 topic.into(),
                 key.into(),
-                String::from_utf8_lossy(&payload).into(),
+                String::from_utf8_lossy(payload).into(),
             ));
             return;
         }
-        if let Err((e, _)) = self.producer.send(BaseRecord::to(topic).key(key).payload(&payload)) {
+        if let Err((e, _)) = self.producer.send(BaseRecord::to(topic).key(key).payload(payload)) {
             self.metrics.kafka_send_errors.inc();
             if let Some(suppressed) = self.delivery.record_failure(chrono::Utc::now().timestamp_millis()) {
                 warn!("Kafka: {topic} не принял сообщение {key}: {e} (ещё {suppressed} с прошлого предупреждения)");
@@ -176,7 +181,16 @@ impl KafkaOut {
     }
 
     pub fn send_telemetry(&self, tag_name: &str, message: &TelemetryMessage) {
-        self.send(&self.topics.telemetry, tag_name, message);
+        thread_local! {
+            /// Буфер тела телеметрии переиспользуется: сообщение копируется в очередь librdkafka при отправке.
+            static BODY: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(Vec::with_capacity(128));
+        }
+        BODY.with(|cell| {
+            let mut body = cell.borrow_mut();
+            body.clear();
+            message.write_json(&mut body);
+            self.send_raw(&self.topics.telemetry, tag_name, &body);
+        });
     }
 
     pub fn send_event(&self, message: &EventMessage) {
