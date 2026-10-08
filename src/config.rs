@@ -164,6 +164,8 @@ pub struct GatewaySettings {
     pub history: HistorySettings,
     /// Команды старше — не исполняются (REJECTED_EXPIRED).
     pub command_max_age: Duration,
+    /// Проверка эффекта записи OPC UA: через столько мс узел читается снова; 0 — выключено.
+    pub command_verify: Duration,
     pub scripts: ScriptSettings,
     pub ha: HaSettings,
     pub opcua_op_timeout: Duration,
@@ -296,6 +298,7 @@ impl Settings {
                     )?,
                 },
                 command_max_age: env_ms(&["GATEWAY_COMMANDS_MAX_AGE_MS", "GATEWAY_COMMANDS_MAXAGEMS"], 30_000)?,
+                command_verify: env_ms(&["GATEWAY_COMMANDS_VERIFY_MS"], 0)?,
                 scripts: ScriptSettings {
                     dir: PathBuf::from(env_or(&["GATEWAY_SCRIPTS_DIR"], "scripts")),
                     timeout: env_ms(&["GATEWAY_SCRIPTS_TIMEOUT_MS", "GATEWAY_SCRIPTS_TIMEOUTMS"], 50)?,

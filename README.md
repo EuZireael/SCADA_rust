@@ -99,6 +99,7 @@ SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9094 \
 | `GATEWAY_HA_INSTANCE_ID` / `_GROUP_ID` / `_TOPIC` | `<HOSTNAME>-<pid>` / `scada-gateway-ha.<топик команд>` / `scada-gateway-ha` | имя экземпляра, группа и служебный топик выборов |
 | `GATEWAY_HA_SESSION_TIMEOUT_MS` / `_HEARTBEAT_INTERVAL_MS` | `6000` / `1000` | время обнаружения отказа активного (брокеру нужен `group.min.session.timeout.ms` ≤ значения) |
 | `GATEWAY_COMMANDS_MAX_AGE_MS` | `30000` | команда старше — `REJECTED_EXPIRED` |
+| `GATEWAY_COMMANDS_VERIFY_MS` | `0` | проверка эффекта записи OPC UA через N мс; значение не изменилось — `FAILED_NOT_APPLIED` |
 | `GATEWAY_SCRIPTS_DIR` / `_TIMEOUT_MS` / `_RELOAD_INTERVAL_MS` | `scripts` / `50` / `5000` | пользовательские Lua-скрипты |
 | `KAFKA_TOPICS_REPLICATION` | `1` | фактор репликации создаваемых топиков |
 | `KAFKA_SECURITY_PROTOCOL` / `KAFKA_SASL_MECHANISM` / `KAFKA_SASL_USERNAME` / `KAFKA_SASL_PASSWORD` | — | TLS и SASL (PLAIN, SCRAM-SHA-256/512): `PLAINTEXT`, `SSL`, `SASL_PLAINTEXT`, `SASL_SSL`; OpenSSL вшит в бинарник |

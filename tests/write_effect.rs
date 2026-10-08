@@ -1,0 +1,76 @@
+//! Проверка эффекта записи (`GATEWAY_COMMANDS_VERIFY_MS`): прошивка принимает команду на клапан линии с кодом 0,
+//! но значением управляет программа — пока клапан не переведён в ручной режим (M=1), он остаётся прежним.
+//! Шлюз с включённой проверкой отвечает `FAILED_NOT_APPLIED`; в ручном режиме — `APPLIED`.
+//!
+//!   cargo test --test write_effect -- --ignored      (симулятор + Kafka, см. tests/common)
+
+mod common;
+
+use std::time::{Duration, Instant};
+
+use rdkafka::consumer::StreamConsumer;
+use rdkafka::message::Message;
+use rdkafka::producer::{FutureProducer, FutureRecord};
+use serde_json::{Value, json};
+
+use common::gateway::{Gateway, consumer_from_beginning, kafka_config};
+use common::{OP_TIMEOUT, controller, controllers_path, toggled};
+use scada_gateway::model::ControllerKind;
+use scada_gateway::opcua::{self, OpcConnection};
+
+const VALVE_ST: &str = "Барановичи-1.BN1_MCA1.V_ST_2.LINE2V0.ST";
+const VALVE_M: &str = "Барановичи-1.BN1_MCA1.V_M_2.LINE2V0.M";
+
+async fn command(gw: &Gateway, producer: &FutureProducer, results: &StreamConsumer, tag: &str, value: Value) -> Value {
+    let id = uuid::Uuid::new_v4().to_string();
+    let body = json!({"commandId": id, "tagName": tag, "value": value, "requestedBy": "it"}).to_string();
+    for _ in 0..5 {
+        producer
+            .send(FutureRecord::to(&gw.topic("commands")).key(tag).payload(&body), Duration::from_secs(5))
+            .await
+            .expect("команда не отправлена");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while let Ok(Ok(m)) =
+            tokio::time::timeout(deadline.saturating_duration_since(Instant::now()), results.recv()).await
+        {
+            let result: Value = serde_json::from_slice(m.payload().unwrap_or_default()).unwrap();
+            if result["commandId"] == id {
+                return result;
+            }
+        }
+    }
+    panic!("нет результата команды {tag} = {value}\n{}", gw.log_tail());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "нужны симулятор и Kafka: cargo test -- --ignored"]
+async fn write_to_a_program_owned_valve_is_reported_as_not_applied_until_manual_mode() {
+    // Текущее значение клапана — прямым чтением из симулятора.
+    let ctrl = controller(ControllerKind::OpcUa);
+    let conn = OpcConnection::connect(&ctrl.endpoint, OP_TIMEOUT).await.expect("нужен симулятор");
+    let st = ctrl.tags.iter().find(|t| t.name == VALVE_ST).expect("тег клапана");
+    let current =
+        opcua::reading(&conn.read(&[opcua::read_value_id(&st.node_id).unwrap()]).await.unwrap()[0]).0.unwrap();
+    conn.close().await;
+    let opposite = json!(toggled(&current).as_f64().unwrap() as i64);
+
+    let gw = Gateway::start_with(&controllers_path(), &[("GATEWAY_COMMANDS_VERIFY_MS", "600")]);
+    let producer: FutureProducer = kafka_config().create().unwrap();
+    let results = consumer_from_beginning(&gw.topic("results")).await;
+
+    // Автоматический режим: команда принята ПЛК, значение осталось за программой.
+    let r = command(&gw, &producer, &results, VALVE_ST, opposite.clone()).await;
+    assert_eq!(r["status"], "FAILED_NOT_APPLIED", "{r}");
+    assert_eq!(r["success"], false);
+
+    // Ручной режим (M=1): запись действует.
+    let r = command(&gw, &producer, &results, VALVE_M, json!(1)).await;
+    assert_eq!(r["status"], "APPLIED", "{r}");
+    let r = command(&gw, &producer, &results, VALVE_ST, opposite).await;
+    assert_eq!(r["status"], "APPLIED", "{r}");
+    assert_eq!(r["success"], true);
+
+    // Вернуть автоматику.
+    let r = command(&gw, &producer, &results, VALVE_M, json!(0)).await;
+    assert_eq!(r["status"], "APPLIED", "{r}");
+}
