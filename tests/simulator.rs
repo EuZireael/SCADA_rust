@@ -37,6 +37,7 @@ async fn opcua_connects_through_localhost_name() {
     conn.close().await;
 }
 
+/// Каждый тег OPC UA из `controllers.yaml` читается и имеет тип, заявленный в конфигурации.
 #[tokio::test]
 #[ignore = "нужен симулятор: SIM_HOST=… cargo test -- --ignored"]
 async fn opcua_reads_every_configured_tag() {
@@ -68,6 +69,7 @@ async fn opcua_reads_every_configured_tag() {
     );
 }
 
+/// Запись в записываемый узел применяется и откатывается обратно; узел только для чтения отклоняется.
 #[tokio::test]
 #[ignore = "нужен симулятор: SIM_HOST=… cargo test -- --ignored"]
 async fn opcua_write_applies_and_readonly_is_rejected() {
@@ -126,6 +128,7 @@ async fn opcua_write_applies_and_readonly_is_rejected() {
 
 // ---------------------------------------------------------------------------- Modbus --
 
+/// Каждый тег Modbus читается блоками и декодируется в тип из конфигурации.
 #[tokio::test]
 #[ignore = "нужен симулятор: SIM_HOST=… cargo test -- --ignored"]
 async fn modbus_reads_every_configured_tag() {
@@ -148,6 +151,7 @@ async fn modbus_reads_every_configured_tag() {
 
 // ------------------------------------------------------------------------------- PAC --
 
+/// Каждый PAC-тег читается из снимка прошивки и приводится к типу из конфигурации.
 #[tokio::test]
 #[ignore = "нужен симулятор: SIM_HOST=… cargo test -- --ignored"]
 async fn pac_reads_every_configured_tag() {
@@ -171,6 +175,7 @@ async fn pac_reads_every_configured_tag() {
     assert!(problems.is_empty(), "нет в снимке t[прибор][поле]: {problems:?}");
 }
 
+/// PAC-команда на известный прибор применяется (и откатывается), на несуществующий — отклоняется. Свой прибор (`LINE1V2`): тесты файла идут параллельно и не должны трогать один прибор.
 #[tokio::test]
 #[ignore = "нужен симулятор: SIM_HOST=… cargo test -- --ignored"]
 async fn pac_write_applies_and_unknown_device_is_rejected() {
@@ -209,6 +214,7 @@ async fn pac_write_applies_and_unknown_device_is_rejected() {
 // Симулятор для этих проверок запускают с SIM_OPCUA_USER и SIM_OPCUA_PASSWORD (CI делает это сам);
 // IT_OPCUA_USER / IT_OPCUA_PASSWORD — те же значения для тестов (по умолчанию operator / operator-pass).
 
+/// Логин и пароль защищённой точки симулятора.
 fn creds() -> (String, String) {
     (
         std::env::var("IT_OPCUA_USER").unwrap_or_else(|_| "operator".into()),
@@ -216,6 +222,7 @@ fn creds() -> (String, String) {
     )
 }
 
+/// Параметры защищённого подключения: политика, пользователь, доверие к серверу, хранилище сертификатов.
 fn secure_opts(security: &str, user: Option<(&str, &str)>, trust_all: bool, pki: &std::path::Path) -> ConnectOptions {
     ConnectOptions {
         security: OpcSecurity::parse(Some(security), user.map(|u| u.0), user.map(|u| u.1)).unwrap(),
@@ -224,12 +231,14 @@ fn secure_opts(security: &str, user: Option<(&str, &str)>, trust_all: bool, pki:
     }
 }
 
+/// Пустое хранилище сертификатов: тест начинается с нуля доверия.
 fn fresh_pki(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("scada-it-pki-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     dir
 }
 
+/// Качество первого узла: подтверждает, что соединение читает значения.
 async fn read_first_node(conn: &OpcConnection) -> Quality {
     let ctrl = controller(ControllerKind::OpcUa);
     let tag = ctrl.tags.iter().find(|t| t.protocol == Protocol::OpcUa).expect("OPC UA-тег");
@@ -237,6 +246,7 @@ async fn read_first_node(conn: &OpcConnection) -> Quality {
     opcua::reading(&values[0]).1
 }
 
+/// Канал Basic256Sha256 SignAndEncrypt с пользователем читает значения.
 #[tokio::test]
 #[ignore = "нужен симулятор с SIM_OPCUA_USER/SIM_OPCUA_PASSWORD"]
 async fn secure_channel_with_user_reads_values() {
@@ -252,6 +262,7 @@ async fn secure_channel_with_user_reads_values() {
     }
 }
 
+/// На защищённой точке неверный пароль и анонимный вход отвергаются.
 #[tokio::test]
 #[ignore = "нужен симулятор с SIM_OPCUA_USER/SIM_OPCUA_PASSWORD"]
 async fn wrong_password_and_anonymous_are_refused_on_the_secure_endpoint() {
@@ -293,6 +304,7 @@ async fn untrusted_server_certificate_is_rejected_until_the_operator_trusts_it()
     conn.close().await;
 }
 
+/// Пользователь на канале без защиты работает, если сервер это разрешает (в журнале шлюза при этом предупреждение).
 #[tokio::test]
 #[ignore = "нужен симулятор с SIM_OPCUA_USER/SIM_OPCUA_PASSWORD"]
 async fn user_over_an_unprotected_channel_still_works_when_the_server_allows_it() {
@@ -315,6 +327,7 @@ async fn pac_program_owned_valve_accepts_the_command_but_opens_only_in_manual_mo
     let mut conn = PacConnection::connect(&host, port, OP_TIMEOUT).await.expect(NEED_SIM);
     let (on, off) = (TagValue::Int(1), TagValue::Int(0));
 
+    /// Значение состояния прибора PAC из свежего снимка.
     async fn state(conn: &mut PacConnection, device: &str) -> Option<TagValue> {
         // Снимок симулятор обновляет раз в update_rate (~0,5 с).
         tokio::time::sleep(Duration::from_millis(1200)).await;
@@ -324,6 +337,7 @@ async fn pac_program_owned_valve_accepts_the_command_but_opens_only_in_manual_mo
 
     // Ожидаемое значение появляется в снимке не мгновенно: на медленной машине цикл симулятора отстаёт, поэтому
     // ждём его (до 10 с), а не читаем один раз; возвращается последнее увиденное.
+    /// Дождаться, пока прибор примет ожидаемое значение: прошивка применяет запись на следующем цикле, а не мгновенно.
     async fn settled(conn: &mut PacConnection, device: &str, want: &TagValue) -> Option<TagValue> {
         let mut last = None;
         for _ in 0..20 {

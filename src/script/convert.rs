@@ -46,6 +46,7 @@ pub(super) fn from_lua(
     let is = |f: fn(&str) -> bool| data_type.is_some_and(f);
     match v {
         Value::Nil => Ok(None),
+        // Булево из скрипта приводится к типу канала: числовому — 1/0, логическому — bool.
         Value::Boolean(b) => Ok(Some(if data_type.is_some() && !is(model::is_bool) && !is(model::is_string) {
             if is(model::is_int) { TagValue::Int(i64::from(*b)) } else { TagValue::F64(f64::from(u8::from(*b))) }
         } else {
@@ -57,6 +58,7 @@ pub(super) fn from_lua(
                 Value::Integer(i) => *i as f64,
                 _ => unreachable!(),
             };
+            // NaN и inf в канал не пропускаем: монитор строит по числу график.
             if !d.is_finite() {
                 return Err(format!("значение не число: {d}"));
             }

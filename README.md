@@ -273,6 +273,9 @@ docker-compose.yml        стенд целиком;  docker-compose.moika.yml �
 | [`docs/TELEMETRY_BY_EXCEPTION.md`](docs/TELEMETRY_BY_EXCEPTION.md) | контракт публикации «по исключению», замеры |
 | [`docs/FIRMWARE_WRITE_BEHAVIOR.md`](docs/FIRMWARE_WRITE_BEHAVIOR.md) | как настоящая прошивка принимает и игнорирует записи |
 | [`docs/FIRMWARE_UNMAPPED_FIELDS.md`](docs/FIRMWARE_UNMAPPED_FIELDS.md) | поля прошивки без канала в базе монитора |
+| [`simulator/README.md`](simulator/README.md) | PLC-симулятор: запуск, подкоманды, формат конфигурации, правила прошивки |
+| [`ptusa-opcua/README.md`](ptusa-opcua/README.md) | фасад «driver-master → OPC UA» для настоящей прошивки |
+| [`loadtest/README.md`](loadtest/README.md) | нагрузочный стенд |
 | [`CHANGELOG.md`](CHANGELOG.md) | история версий |
 
 ## Отличия от Java-шлюза (намеренные)

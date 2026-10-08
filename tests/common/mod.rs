@@ -18,14 +18,17 @@ use scada_gateway::model::{self, Controller, ControllerKind, TagValue};
 
 pub const OP_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Хост симулятора (`SIM_HOST`).
 pub fn sim_host() -> String {
     std::env::var("SIM_HOST").unwrap_or_else(|_| "127.0.0.1".into())
 }
 
+/// Брокер для тестов (`KAFKA_BOOTSTRAP`).
 pub fn kafka_bootstrap() -> String {
     std::env::var("KAFKA_BOOTSTRAP").unwrap_or_else(|_| "localhost:9094".into())
 }
 
+/// Файл станции для тестов (`CONTROLLERS_YAML`).
 pub fn controllers_path() -> PathBuf {
     std::env::var("CONTROLLERS_YAML")
         .map(PathBuf::from)
@@ -48,6 +51,7 @@ pub fn controllers() -> Vec<Controller> {
         .collect()
 }
 
+/// Первый контроллер заданного протокола из станции.
 pub fn controller(kind: ControllerKind) -> Controller {
     controllers().into_iter().find(|c| c.kind == kind).unwrap_or_else(|| panic!("в конфиге нет контроллера {kind:?}"))
 }

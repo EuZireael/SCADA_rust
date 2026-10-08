@@ -11,6 +11,7 @@ use common::gateway::Gateway;
 use common::{controller, sim_host};
 use scada_gateway::model::{ControllerKind, Protocol};
 
+/// Станция из одного OPC UA-контроллера симулятора с заданной защитой и учётными данными.
 fn controllers_yaml(dir: &std::path::Path, security: &str, user: &str, password: &str) -> std::path::PathBuf {
     let ctrl = controller(ControllerKind::OpcUa);
     let tags: Vec<String> = ctrl
@@ -38,6 +39,7 @@ fn controllers_yaml(dir: &std::path::Path, security: &str, user: &str, password:
     path
 }
 
+/// Пустая временная папка для хранилища сертификатов.
 fn temp_dir(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("scada-it-secure-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -45,6 +47,7 @@ fn temp_dir(name: &str) -> std::path::PathBuf {
     dir
 }
 
+/// Логин и пароль защищённой точки симулятора (`SIM_OPCUA_USER`/`SIM_OPCUA_PASSWORD`).
 fn creds() -> (String, String) {
     (
         std::env::var("IT_OPCUA_USER").unwrap_or_else(|_| "operator".into()),
@@ -52,6 +55,8 @@ fn creds() -> (String, String) {
     )
 }
 
+/// Шлюз с `security: Basic256Sha256` и пользователем из `controllers.yaml` подключается; в журнале есть режим канала, но нет
+/// пароля, а доверие любому сертификату (стенд) отмечено предупреждением.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "нужен симулятор с SIM_OPCUA_USER/SIM_OPCUA_PASSWORD"]
 async fn gateway_connects_with_policy_and_user_from_the_config() {
@@ -74,6 +79,7 @@ async fn gateway_connects_with_policy_and_user_from_the_config() {
     gw.delete_topics().await;
 }
 
+/// Неверный пароль — связь остаётся потерянной, а самого пароля нет в журнале.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "нужен симулятор с SIM_OPCUA_USER/SIM_OPCUA_PASSWORD"]
 async fn wrong_password_keeps_the_link_down_and_the_secret_out_of_the_log() {

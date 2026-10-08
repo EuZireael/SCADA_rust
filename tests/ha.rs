@@ -23,10 +23,12 @@ use serde_json::{Value, json};
 use common::gateway::{Gateway, consumer_from_beginning, kafka_config, new_prefix};
 use common::{controllers, controllers_path};
 
+/// Сессия выборов в тестах (`IT_HA_SESSION_MS`): брокеру CI нужно не меньше 6000.
 fn session_ms() -> u64 {
     std::env::var("IT_HA_SESSION_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(2000)
 }
 
+/// Окружение экземпляра пары: общая группа и топики, своё имя.
 fn ha_env(prefix: &str, instance: &str) -> Vec<(String, String)> {
     vec![
         ("GATEWAY_HA_ENABLED".into(), "true".into()),
@@ -38,10 +40,12 @@ fn ha_env(prefix: &str, instance: &str) -> Vec<(String, String)> {
     ]
 }
 
+/// Запуск экземпляра пары.
 fn start(prefix: &str, instance: &str) -> Gateway {
     start_with(prefix, instance, &[])
 }
 
+/// Запуск экземпляра пары с дополнительными переменными.
 fn start_with(prefix: &str, instance: &str, extra: &[(&str, &str)]) -> Gateway {
     let env = ha_env(prefix, instance);
     let mut refs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
@@ -71,6 +75,7 @@ async fn tags_since(
     seen
 }
 
+/// Отправить команду записи через Kafka и дождаться результата.
 async fn command(
     producer: &FutureProducer,
     results: &StreamConsumer,
@@ -94,6 +99,9 @@ async fn command(
     panic!("нет результата команды {tag} за 15 с");
 }
 
+/// Пара: активный публикует, резерв держит связь с ПЛК и молчит. `kill -9` активного — резерв становится активным за время сессии,
+/// заново шлёт все теги и сразу принимает команды; вернувшийся экземпляр лидерство не отбирает; штатная остановка передаёт
+/// роль партнёру без ожидания сессии.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "нужны симулятор и Kafka с group.min.session.timeout.ms ≤ 1000: cargo test -- --ignored"]
 async fn hot_standby_failover() {

@@ -195,6 +195,7 @@ pub fn spawn_commands(app: &Arc<App>, leadership: &Arc<Leadership>, tasks: &mut 
     if app.kafka.is_none() {
         return;
     }
+    // Один `Dedup` на все перезапуски задачи: после падения консьюмера повтор команды всё равно будет отброшен.
     let dedup = Arc::new(Dedup::new(DEDUP_TTL, DEDUP_MAX));
     let (app, leadership, cancel) = (app.clone(), leadership.clone(), tasks.cancel.clone());
     tasks.supervise("команды", move || {

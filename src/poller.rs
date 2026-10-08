@@ -245,6 +245,7 @@ async fn run_opcua(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancell
         };
         fails = 0;
         handle.touch();
+        // С этого момента команды записи используют эту сессию.
         handle.set_opc_connection(Some(conn.clone()));
         info!("✅ OPC UA socket up: {} — опрос запущен", handle.ctrl.name);
 
@@ -259,6 +260,7 @@ async fn run_opcua(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancell
             }
         }
         handle.set_opc_connection(None);
+        // Закрываем сессию явно: иначе сервер держал бы её до своего таймаута.
         conn.close().await;
         if cancel.is_cancelled() || !pause(&cancel, Duration::from_secs(1)).await {
             return;
@@ -325,6 +327,7 @@ async fn run_pac(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancellat
             _ = tick.tick() => {}
         }
         let _cycle = CycleTimer::start(&app, &handle);
+        // Замок соединения PAC: команды записи идут по тому же соединению и ждут, пока опрос его отпустит.
         let mut guard = handle.pac.lock().await;
         if guard.is_none() {
             match PacConnection::connect(&host, port, gw.pac_op_timeout).await {
@@ -352,6 +355,7 @@ async fn run_pac(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancellat
                         Reading { tag: tag.clone(), value, quality, timestamp: ts }
                     })
                     .collect();
+                // Значения сняты: соединение свободно для команд, пока идёт обработка.
                 drop(guard);
                 processor.process(&readings);
                 app.mark_up(&handle);

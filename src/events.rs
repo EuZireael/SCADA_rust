@@ -144,6 +144,7 @@ pub async fn run_writer(
     };
     let mut batch: Vec<Event> = Vec::with_capacity(500);
     loop {
+        // Ждём пачку событий или остановку; при остановке забираем всё, что успело встать в очередь, и выходим после обработки.
         let closed = tokio::select! {
             n = rx.recv_many(&mut batch, 500) => n == 0,
             _ = cancel.cancelled() => { rx.close(); while let Ok(e) = rx.try_recv() { batch.push(e); } true }

@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use common::gateway::Gateway;
 
+/// С токеном `/api/*` без токена и с чужим отвечает 401, с верным — 200; `/actuator/*` открыт всегда (проверка контейнера и метрики).
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "нужны симулятор и Kafka: cargo test -- --ignored"]
 async fn api_requires_token_but_actuator_stays_open() {

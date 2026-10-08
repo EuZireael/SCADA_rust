@@ -63,6 +63,7 @@ async fn await_value(telemetry: &StreamConsumer, tag: &str, expected: &Value) ->
     last
 }
 
+/// Шлюз целиком глазами монитора: все теги `GOOD` и контракт тела телеметрии, команды через Kafka со всеми статусами, метрики, здоровье (ни одна задача не перезапускалась, доставка идёт), журнал в БД и REST, остановка по SIGTERM.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "нужны симулятор и Kafka: cargo test -- --ignored"]
 async fn gateway_end_to_end() {

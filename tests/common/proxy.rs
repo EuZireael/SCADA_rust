@@ -38,6 +38,7 @@ impl Proxy {
         Proxy { port, mode, accept }
     }
 
+    /// Переключить режим прокси: пропускать, рвать соединения или молчать.
     pub fn set(&self, mode: Mode) {
         self.mode.send_replace(mode);
     }

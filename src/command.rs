@@ -173,11 +173,13 @@ async fn write_opcua(app: &App, controller: &crate::app::ControllerHandle, w: Wr
         }
     };
     let verify = app.settings.gateway.command_verify;
+    // Значение до записи нужно, чтобы отличить «запись не подействовала» от «значение и так было таким».
     let before = if verify.is_zero() { None } else { read_back(&conn, &tag.node_id).await };
     match conn.write(node, variant).await {
         Ok(status) if status.is_good() => {
             info!("✍ OPC UA записано {} = {}", tag.name, value);
             if let Some(before) = before {
+                // Даём ПЛК применить запись: программа ПЛК обрабатывает её на своём цикле, а не мгновенно.
                 tokio::time::sleep(verify).await;
                 if let Some(after) = read_back(&conn, &tag.node_id).await
                     && !same_value(&after, &value)
@@ -269,6 +271,7 @@ impl Dedup {
         }
         map.insert(id.to_string(), now);
         order.push_back(id.to_string());
+        // Окно ограничено по числу записей: старейшие вытесняются, память не растёт.
         while order.len() > self.max {
             if let Some(old) = order.pop_front() {
                 map.remove(&old);

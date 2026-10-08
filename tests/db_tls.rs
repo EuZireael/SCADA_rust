@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use scada_gateway::config::{DbSettings, DbSsl, Secret, parse_jdbc_url};
 use scada_gateway::db;
 
+/// Настройки подключения к PostgreSQL с TLS из окружения; `None` — тест не настроен.
 fn settings(ssl: DbSsl, root_cert: bool) -> Option<DbSettings> {
     let url = std::env::var("IT_DATABASE_TLS_URL").ok()?;
     let ca = std::env::var("IT_DATABASE_TLS_CA").ok()?;
@@ -35,6 +36,7 @@ async fn is_encrypted(s: &DbSettings) -> bool {
         .expect("pg_stat_ssl")
 }
 
+/// `require` и `prefer` дают зашифрованное соединение (сервер сам это подтверждает в `pg_stat_ssl`), `disable` — открытое.
 #[tokio::test]
 #[ignore = "нужен PostgreSQL с TLS (IT_DATABASE_TLS_URL)"]
 async fn require_encrypts_and_disable_does_not() {
@@ -49,6 +51,7 @@ async fn require_encrypts_and_disable_does_not() {
     assert!(!is_encrypted(&settings(DbSsl::Disable, false).unwrap()).await, "sslmode=disable: открытый канал");
 }
 
+/// `verify-full` принимает сертификат своего УЦ и отвергает чужой сразу, без минуты повторов, не раскрывая пароль в ошибке.
 #[tokio::test]
 #[ignore = "нужен PostgreSQL с TLS (IT_DATABASE_TLS_URL)"]
 async fn verify_full_checks_the_server_certificate() {
@@ -63,6 +66,7 @@ async fn verify_full_checks_the_server_certificate() {
     assert!(!format!("{err:#}").contains("pw"), "пароль не попадает в ошибку: {err:#}");
 }
 
+/// Неверный пароль — ошибка за секунды, а не после повторов подключения.
 #[tokio::test]
 #[ignore = "нужен PostgreSQL с TLS (IT_DATABASE_TLS_URL)"]
 async fn wrong_password_fails_fast() {
