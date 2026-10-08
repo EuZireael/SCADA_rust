@@ -259,8 +259,13 @@ CI проверит, что тег совпадает с `Cargo.toml`, прог�
 
 ```
 src/
-  main.rs        сборка, задачи, остановка по SIGTERM, подкоманда healthcheck
-  config.rs      env и controllers.yaml
+  main.rs        порядок запуска и остановки, подкоманда healthcheck
+  startup.rs     шаги запуска: станция и БД, роль, Kafka, задачи под надзором (Tasks), HTTP, сигнал
+  config/        env (mod, env.rs), controllers.yaml (station.rs), безопасность Kafka (client_props.rs)
+  supervisor.rs  перезапуск упавших задач
+  script/        Lua-скрипты каналов: набор (mod), маски, привязанный скрипт, преобразования значений
+  filter.rs      публикация по исключению, разброс полной отправки
+  ha.rs, leadership.rs   горячее резервирование
   model.rs       теги, контроллеры, значения, формат времени
   app.rs         общее состояние, связь с контроллерами (CONNECTED/DISCONNECTED)
   poller.rs      циклы опроса OPC UA / Modbus / PAC, heartbeat, сводка здоровья
