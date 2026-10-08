@@ -73,24 +73,7 @@ impl Processor {
         let app = self.app.clone();
         let gw = &app.settings.gateway;
         let active = app.leadership.is_active();
-        if active && self.epoch != app.leadership.activations() {
-            // Стали активными: прежний активный мог упасть, и потребитель не знает значений тегов —
-            // отправляем и пишем всё заново, а не ждём полной отправки неизменившихся.
-            self.epoch = app.leadership.activations();
-            for st in &mut self.states {
-                st.published = None;
-                st.history = None;
-            }
-            info!("{}: состояние фильтров публикации сброшено — полная отправка", self.controller.ctrl.name);
-        }
-        if let Some(kafka) = &app.kafka
-            && self.delivery_epoch != kafka.delivery().resync_epoch()
-        {
-            // Брокер был недоступен: недоставленное фильтр уже считал отправленным. Историю не трогаем.
-            self.delivery_epoch = kafka.delivery().resync_epoch();
-            self.states.iter_mut().for_each(|st| st.published = None);
-            info!("{}: доставка в Kafka восстановлена — полная отправка", self.controller.ctrl.name);
-        }
+        self.resync_filters(&app, active);
         let scripts = app.scripts.snapshot();
         let have_scripts = !scripts.is_empty();
         let (mut to_bad, mut to_good) = (Vec::new(), Vec::new());
@@ -177,6 +160,28 @@ impl Processor {
         }
         self.emit_quality_change(to_bad, to_good);
         app.metrics.process_seconds.observe(started.elapsed().as_secs_f64());
+    }
+
+    /// Сбросить состояние фильтров, если надо отправить всё заново: экземпляр стал активным или Kafka снова доступна.
+    fn resync_filters(&mut self, app: &App, active: bool) {
+        if active && self.epoch != app.leadership.activations() {
+            // Стали активными: прежний активный мог упасть, и потребитель не знает значений тегов —
+            // отправляем и пишем всё заново, а не ждём полной отправки неизменившихся.
+            self.epoch = app.leadership.activations();
+            for st in &mut self.states {
+                st.published = None;
+                st.history = None;
+            }
+            info!("{}: состояние фильтров публикации сброшено — полная отправка", self.controller.ctrl.name);
+        }
+        if let Some(kafka) = &app.kafka
+            && self.delivery_epoch != kafka.delivery().resync_epoch()
+        {
+            // Брокер был недоступен: недоставленное фильтр уже считал отправленным. Историю не трогаем.
+            self.delivery_epoch = kafka.delivery().resync_epoch();
+            self.states.iter_mut().for_each(|st| st.published = None);
+            info!("{}: доставка в Kafka восстановлена — полная отправка", self.controller.ctrl.name);
+        }
     }
 
     /// Смена качества — одно сводное событие на цикл. (Java-шлюз писал событие на КАЖДЫЙ
