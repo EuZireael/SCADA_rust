@@ -178,23 +178,24 @@ async fn pac_write_applies_and_unknown_device_is_rejected() {
     let (host, port) = pac::endpoint(&ctrl.endpoint);
     let mut conn = PacConnection::connect(&host, port, OP_TIMEOUT).await.expect(NEED_SIM);
 
-    // LINE1V0.M — чистый актуатор: пишем противоположное и возвращаем как было.
+    // LINE1V2.M — чистый актуатор: пишем противоположное и возвращаем как было. Не LINE1V0: тесты файла идут
+    // параллельно, и LINE1V0 занят проверкой клапана под управлением программы.
     conn.poll_states().await.unwrap();
-    let before = conn.read_value("LINE1V0", "M", "INT32").expect("LINE1V0.M в снимке");
+    let before = conn.read_value("LINE1V2", "M", "INT32").expect("LINE1V2.M в снимке");
     let target = toggled(&before);
-    assert_eq!(conn.exec_command("LINE1V0", "M", &target).await.unwrap(), 0, "PAC применяет set_cmd");
+    assert_eq!(conn.exec_command("LINE1V2", "M", &target).await.unwrap(), 0, "PAC применяет set_cmd");
     // Снимок симулятор обновляет раз в update_rate (~0,5 с).
     let mut seen = None;
     for _ in 0..12 {
         tokio::time::sleep(Duration::from_millis(300)).await;
         conn.poll_states().await.unwrap();
-        seen = conn.read_value("LINE1V0", "M", "INT32");
+        seen = conn.read_value("LINE1V2", "M", "INT32");
         if seen.as_ref() == Some(&target) {
             break;
         }
     }
     assert_eq!(seen, Some(target), "после записи M должен смениться");
-    assert_eq!(conn.exec_command("LINE1V0", "M", &before).await.unwrap(), 0);
+    assert_eq!(conn.exec_command("LINE1V2", "M", &before).await.unwrap(), 0);
 
     assert_ne!(
         conn.exec_command("NO_SUCH_DEVICE", "M", &TagValue::Int(1)).await.unwrap(),
@@ -321,6 +322,19 @@ async fn pac_program_owned_valve_accepts_the_command_but_opens_only_in_manual_mo
         conn.read_value(device, "ST", "INT32")
     }
 
+    // Ожидаемое значение появляется в снимке не мгновенно: на медленной машине цикл симулятора отстаёт, поэтому
+    // ждём его (до 10 с), а не читаем один раз; возвращается последнее увиденное.
+    async fn settled(conn: &mut PacConnection, device: &str, want: &TagValue) -> Option<TagValue> {
+        let mut last = None;
+        for _ in 0..20 {
+            last = state(conn, device).await;
+            if last.as_ref() == Some(want) {
+                break;
+            }
+        }
+        last
+    }
+
     // Значение, которое считает программа (у симулятора — архив): его запись в автоматическом режиме не меняет.
     assert_eq!(conn.exec_command("LINE1V0", "M", &off).await.unwrap(), 0);
     let program = state(&mut conn, "LINE1V0").await.expect("LINE1V0.ST в снимке");
@@ -335,19 +349,23 @@ async fn pac_program_owned_valve_accepts_the_command_but_opens_only_in_manual_mo
     assert_eq!(conn.exec_command("LINE1V0", "M", &on).await.unwrap(), 0);
     assert_eq!(conn.exec_command("LINE1V0", "ST", &opposite).await.unwrap(), 0);
     assert_eq!(
-        state(&mut conn, "LINE1V0").await,
+        settled(&mut conn, "LINE1V0", &opposite).await,
         Some(opposite.clone()),
         "в ручном режиме команда действует и держится"
     );
 
     assert_eq!(conn.exec_command("LINE1V0", "M", &off).await.unwrap(), 0);
-    assert_eq!(state(&mut conn, "LINE1V0").await, Some(program), "вернули автоматику — значение снова за программой");
+    assert_eq!(
+        settled(&mut conn, "LINE1V0", &program).await,
+        Some(program),
+        "вернули автоматику — значение снова за программой"
+    );
 
     // Обычный клапан: команда держится без ручного режима.
     conn.poll_states().await.unwrap();
     if conn.read_value("LINE1V1", "ST", "INT32").is_some() {
         assert_eq!(conn.exec_command("LINE1V1", "ST", &on).await.unwrap(), 0);
-        assert_eq!(state(&mut conn, "LINE1V1").await, Some(on.clone()));
+        assert_eq!(settled(&mut conn, "LINE1V1", &on).await, Some(on.clone()));
         assert_eq!(conn.exec_command("LINE1V1", "ST", &off).await.unwrap(), 0);
     }
 

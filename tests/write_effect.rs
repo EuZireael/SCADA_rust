@@ -54,7 +54,7 @@ async fn write_to_a_program_owned_valve_is_reported_as_not_applied_until_manual_
     conn.close().await;
     let opposite = json!(toggled(&current).as_f64().unwrap() as i64);
 
-    let gw = Gateway::start_with(&controllers_path(), &[("GATEWAY_COMMANDS_VERIFY_MS", "600")]);
+    let gw = Gateway::start_with(&controllers_path(), &[("GATEWAY_COMMANDS_VERIFY_MS", "1500")]);
     let producer: FutureProducer = kafka_config().create().unwrap();
     let results = consumer_from_beginning(&gw.topic("results")).await;
 
