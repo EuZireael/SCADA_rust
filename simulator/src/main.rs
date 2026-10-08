@@ -71,7 +71,7 @@ fn pac_devices(plc: &Plc) -> Vec<PacDevice> {
 }
 
 async fn healthcheck() -> Result<()> {
-    let cfg_path = std::env::args().nth(2).unwrap_or_else(|| "config/replay_config.yaml".into());
+    let cfg_path = arg(2).unwrap_or_else(|| DEFAULT_CONFIG.into());
     let cfg = config::load(Path::new(&cfg_path))?;
     for port in [env_port("MODBUS_PORT", cfg.modbus_port)?, env_port("PAC_PORT", cfg.pac_port)?] {
         tokio::time::timeout(std::time::Duration::from_secs(2), tokio::net::TcpStream::connect(("127.0.0.1", port)))
@@ -82,6 +82,110 @@ async fn healthcheck() -> Result<()> {
     Ok(())
 }
 
+const DEFAULT_CONFIG: &str = "config/replay_config.yaml";
+
+/// Аргумент командной строки по номеру (после имени подкоманды).
+fn arg(n: usize) -> Option<String> {
+    std::env::args().nth(n)
+}
+
+fn port_arg(n: usize) -> Result<u16> {
+    Ok(arg(n).map(|p| p.parse()).transpose().context("порт")?.unwrap_or(10000))
+}
+
+/// Служебные подкоманды (`healthcheck`, `conformance`, `probe-pac`); `None` — обычный запуск симулятора.
+async fn subcommand() -> Option<Result<()>> {
+    match arg(1).as_deref() {
+        Some("healthcheck") => Some(healthcheck().await),
+        Some("conformance") => Some(
+            async {
+                let host = arg(2).unwrap_or_else(|| "127.0.0.1".into());
+                let cfg = arg(4).unwrap_or_else(|| DEFAULT_CONFIG.into());
+                conformance::run(&host, port_arg(3)?, Path::new(&cfg)).await
+            }
+            .await,
+        ),
+        Some("probe-pac") => {
+            Some(async { pac::probe(&arg(2).unwrap_or_else(|| "localhost".into()), port_arg(3)?).await }.await)
+        }
+        _ => None,
+    }
+}
+
+fn load_replay(cfg: &config::Config, config_path: &Path) -> Result<Option<Replay>> {
+    if !cfg.replay.enabled {
+        return Ok(None);
+    }
+    let archive = Archive::load(&resolve_data_path(&cfg.replay.data_path, config_path))?;
+    let replay = Replay::new(archive, cfg.replay.speed, cfg.replay.looped);
+    info!(
+        "Загружен архив replay: {} тегов, длительность {:.2} сут, speed={}, loop={}",
+        replay.series_count(),
+        replay.duration / 86400.0,
+        replay.speed,
+        replay.looped
+    );
+    Ok(Some(replay))
+}
+
+/// PAC-сервер (если в конфигурации есть теги PAC): запись клиента идёт в состояние контроллера.
+async fn start_pac(plc: &Arc<Plc>, cfg: &config::Config) -> Result<Option<Arc<PacModel>>> {
+    if plc.stats().pac == 0 {
+        return Ok(None);
+    }
+    let writer = plc.clone();
+    let model = Arc::new(PacModel::new(
+        &plc.name,
+        pac_devices(plc),
+        Box::new(move |device, field, index, value| writer.pac_write(device, field, index, value)),
+    ));
+    let listener = TcpListener::bind(("0.0.0.0", env_port("PAC_PORT", cfg.pac_port)?)).await.context("порт PAC")?;
+    tokio::spawn(pac::serve(listener, model.clone()));
+    Ok(Some(model))
+}
+
+/// OPC UA-сервер; с `SIM_OPCUA_USER` / `SIM_OPCUA_PASSWORD` — ещё и защищённые точки для проверки шлюза.
+fn start_opcua(plc: &Arc<Plc>, cfg: &config::Config) -> Result<(tokio::task::JoinHandle<()>, opcua::Pusher)> {
+    let env = |name| std::env::var(name).ok().filter(|v| !v.is_empty());
+    let endpoint = env("OPCUA_ENDPOINT").unwrap_or_else(|| cfg.plc.endpoint.clone());
+    let user = env("SIM_OPCUA_USER").zip(env("SIM_OPCUA_PASSWORD"));
+    let (server, pusher) = opcua::build(plc, &endpoint, user.as_ref().map(|(u, p)| (u.as_str(), p.as_str())))?;
+    if user.is_some() {
+        info!("OPC UA: включены защищённые конечные точки Basic256Sha256 (пользователь из SIM_OPCUA_USER)");
+    }
+    let task = tokio::spawn(async move {
+        if let Err(e) = server.run().await {
+            warn!("OPC UA-сервер остановлен: {e}");
+        }
+    });
+    Ok((task, pusher))
+}
+
+/// Цикл обновления: значения из архива → регистры, узлы OPC UA, снимок PAC.
+fn spawn_cycle(
+    plc: Arc<Plc>,
+    regs: Arc<modbus::Registers>,
+    pusher: opcua::Pusher,
+    pac: Option<Arc<PacModel>>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(plc.update_rate);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tokio::select! {
+                _ = tick.tick() => {}
+                _ = plc.wake.notified() => {}
+            }
+            let out = plc.cycle(&regs);
+            pusher.push(&out.opcua);
+            if let Some(pac) = &pac {
+                let snapshot: HashMap<String, value::Value> = out.pac;
+                pac.update_snapshot(snapshot);
+            }
+        }
+    })
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -89,39 +193,13 @@ async fn main() -> Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,opcua=warn".into()),
         )
         .init();
-    match std::env::args().nth(1).as_deref() {
-        Some("healthcheck") => return healthcheck().await,
-        Some("conformance") => {
-            let host = std::env::args().nth(2).unwrap_or_else(|| "127.0.0.1".into());
-            let port = std::env::args().nth(3).map(|p| p.parse()).transpose().context("порт")?.unwrap_or(10000);
-            let cfg = std::env::args().nth(4).unwrap_or_else(|| "config/replay_config.yaml".into());
-            return conformance::run(&host, port, Path::new(&cfg)).await;
-        }
-        Some("probe-pac") => {
-            let host = std::env::args().nth(2).unwrap_or_else(|| "localhost".into());
-            let port = std::env::args().nth(3).map(|p| p.parse()).transpose().context("порт")?.unwrap_or(10000);
-            return pac::probe(&host, port).await;
-        }
-        _ => {}
+    if let Some(result) = subcommand().await {
+        return result;
     }
-    let config_path = PathBuf::from(std::env::args().nth(1).unwrap_or_else(|| "config/replay_config.yaml".into()));
+    let config_path = PathBuf::from(arg(1).unwrap_or_else(|| DEFAULT_CONFIG.into()));
     let cfg = config::load(&config_path)?;
 
-    let replay = if cfg.replay.enabled {
-        let archive = Archive::load(&resolve_data_path(&cfg.replay.data_path, &config_path))?;
-        let replay = Replay::new(archive, cfg.replay.speed, cfg.replay.looped);
-        info!(
-            "Загружен архив replay: {} тегов, длительность {:.2} сут, speed={}, loop={}",
-            replay.series_count(),
-            replay.duration / 86400.0,
-            replay.speed,
-            replay.looped
-        );
-        Some(replay)
-    } else {
-        None
-    };
-    let plc = Arc::new(Plc::new(&cfg, replay)?);
+    let plc = Arc::new(Plc::new(&cfg, load_replay(&cfg, &config_path)?)?);
     let st = plc.stats();
     info!(
         "PLC {} ({}): {} тегов — OPC UA {}, Modbus {}, PAC {}; шаг {:?}",
@@ -132,55 +210,9 @@ async fn main() -> Result<()> {
     let modbus_listener =
         TcpListener::bind(("0.0.0.0", env_port("MODBUS_PORT", cfg.modbus_port)?)).await.context("порт Modbus")?;
     tokio::spawn(modbus::serve(modbus_listener, regs.clone()));
-
-    let pac = if st.pac > 0 {
-        let writer = plc.clone();
-        let model = Arc::new(PacModel::new(
-            &plc.name,
-            pac_devices(&plc),
-            Box::new(move |device, field, index, value| writer.pac_write(device, field, index, value)),
-        ));
-        let listener = TcpListener::bind(("0.0.0.0", env_port("PAC_PORT", cfg.pac_port)?)).await.context("порт PAC")?;
-        tokio::spawn(pac::serve(listener, model.clone()));
-        Some(model)
-    } else {
-        None
-    };
-
-    let endpoint =
-        std::env::var("OPCUA_ENDPOINT").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| cfg.plc.endpoint.clone());
-    // Защищённые конечные точки для проверки шлюза: SIM_OPCUA_USER / SIM_OPCUA_PASSWORD.
-    let user = (std::env::var("SIM_OPCUA_USER").ok().filter(|v| !v.is_empty()))
-        .zip(std::env::var("SIM_OPCUA_PASSWORD").ok().filter(|v| !v.is_empty()));
-    let (opcua_server, pusher) = opcua::build(&plc, &endpoint, user.as_ref().map(|(u, p)| (u.as_str(), p.as_str())))?;
-    if user.is_some() {
-        info!("OPC UA: включены защищённые конечные точки Basic256Sha256 (пользователь из SIM_OPCUA_USER)");
-    }
-    let server_task = tokio::spawn(async move {
-        if let Err(e) = opcua_server.run().await {
-            warn!("OPC UA-сервер остановлен: {e}");
-        }
-    });
-
-    // Цикл обновления: значения из архива → регистры, узлы OPC UA, снимок PAC.
-    let cycle_plc = plc.clone();
-    let cycle_regs = regs.clone();
-    let cycle = tokio::spawn(async move {
-        let mut tick = tokio::time::interval(cycle_plc.update_rate);
-        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        loop {
-            tokio::select! {
-                _ = tick.tick() => {}
-                _ = cycle_plc.wake.notified() => {}
-            }
-            let out = cycle_plc.cycle(&cycle_regs);
-            pusher.push(&out.opcua);
-            if let Some(pac) = &pac {
-                let snapshot: HashMap<String, value::Value> = out.pac;
-                pac.update_snapshot(snapshot);
-            }
-        }
-    });
+    let pac = start_pac(&plc, &cfg).await?;
+    let (server_task, pusher) = start_opcua(&plc, &cfg)?;
+    let cycle = spawn_cycle(plc, regs, pusher, pac);
 
     info!("Симулятор запущен, остановка — Ctrl+C / SIGTERM");
     shutdown_signal().await;

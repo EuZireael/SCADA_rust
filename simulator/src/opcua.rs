@@ -85,129 +85,130 @@ pub struct Pusher {
     types: HashMap<String, DataType>,
 }
 
-/// Собирает сервер с адресным пространством из тегов контроллера. Сервер надо запустить (`run`).
-/// С `user` (логин, пароль) сервер дополнительно предлагает защищённые конечные точки
-/// (Basic256Sha256: Sign и SignAndEncrypt), доступные только этому пользователю, а на открытой точке
+/// Сервер без узлов: адрес, PKI и конечные точки. С `user` (логин, пароль) сервер дополнительно предлагает
+/// защищённые точки (Basic256Sha256: Sign и SignAndEncrypt), доступные только этому пользователю, а на открытой
 /// принимает и его. Нужно для проверки защищённого подключения шлюза.
-pub fn build(plc: &Arc<Plc>, endpoint: &str, user: Option<(&str, &str)>) -> Result<(Server, Pusher)> {
-    {
-        let (host, port) = parse_endpoint(endpoint)?;
-        let ns_uri = format!("http://{}", plc.id);
-        let pki = std::env::temp_dir().join(format!("sim-pki-{}-{port}", std::process::id()));
-        let builder = ServerBuilder::new_anonymous(plc.name.clone())
-            .application_uri(format!("urn:{}:simulator", plc.id))
-            .product_uri("urn:scada-rust:simulator")
-            .host(host)
-            .port(port)
-            .pki_dir(pki)
-            .create_sample_keypair(true)
-            .trust_client_certs(true);
-        let builder = match user {
-            None => builder.add_endpoint(
+fn server_builder(plc: &Plc, host: String, port: u16, user: Option<(&str, &str)>) -> ServerBuilder {
+    let pki = std::env::temp_dir().join(format!("sim-pki-{}-{port}", std::process::id()));
+    let builder = ServerBuilder::new_anonymous(plc.name.clone())
+        .application_uri(format!("urn:{}:simulator", plc.id))
+        .product_uri("urn:scada-rust:simulator")
+        .host(host)
+        .port(port)
+        .pki_dir(pki)
+        .create_sample_keypair(true)
+        .trust_client_certs(true);
+    match user {
+        None => builder
+            .add_endpoint("none", ("/", SecurityPolicy::None, MessageSecurityMode::None, &["ANONYMOUS"] as &[&str])),
+        Some((name, pass)) => builder
+            .add_user_token("operator", ServerUserToken::user_pass(name, pass))
+            .add_endpoint(
                 "none",
-                ("/", SecurityPolicy::None, MessageSecurityMode::None, &["ANONYMOUS"] as &[&str]),
+                ("/", SecurityPolicy::None, MessageSecurityMode::None, &["ANONYMOUS", "operator"] as &[&str]),
+            )
+            .add_endpoint(
+                "basic256sha256_sign",
+                ("/", SecurityPolicy::Basic256Sha256, MessageSecurityMode::Sign, &["operator"] as &[&str]),
+            )
+            .add_endpoint(
+                "basic256sha256_signandencrypt",
+                ("/", SecurityPolicy::Basic256Sha256, MessageSecurityMode::SignAndEncrypt, &["operator"] as &[&str]),
             ),
-            Some((name, pass)) => builder
-                .add_user_token("operator", ServerUserToken::user_pass(name, pass))
-                .add_endpoint(
-                    "none",
-                    ("/", SecurityPolicy::None, MessageSecurityMode::None, &["ANONYMOUS", "operator"] as &[&str]),
-                )
-                .add_endpoint(
-                    "basic256sha256_sign",
-                    ("/", SecurityPolicy::Basic256Sha256, MessageSecurityMode::Sign, &["operator"] as &[&str]),
-                )
-                .add_endpoint(
-                    "basic256sha256_signandencrypt",
-                    (
-                        "/",
-                        SecurityPolicy::Basic256Sha256,
-                        MessageSecurityMode::SignAndEncrypt,
-                        &["operator"] as &[&str],
-                    ),
-                ),
-        };
-        let (server, handle) = builder
-            .with_node_manager(simple_node_manager(
-                NamespaceMetadata { namespace_uri: ns_uri.clone(), ..Default::default() },
-                "sim",
-            ))
-            .build()
-            .map_err(|e| anyhow::anyhow!("OPC UA-сервер: {e}"))?;
-        let manager = handle.node_managers().get_of_type::<SimpleNodeManager>().context("менеджер узлов")?;
-        let ns = handle.get_namespace_index(&ns_uri).context("namespace")?;
-        ensure!(ns == 2, "namespace должен быть 2, а не {ns}: адрес узлов в базе каналов — ns=2;s=<address>");
-
-        let mut types = HashMap::new();
-        let mut count = 0usize;
-        let mut devices = 0usize;
-        {
-            let mut space = manager.address_space().write();
-            let objects = NodeId::from(ObjectId::ObjectsFolder);
-            let plc_node = NodeId::new(ns, format!("plc:{}", plc.id));
-            ObjectBuilder::new(&plc_node, plc.id.clone(), plc.id.clone()).organized_by(objects).insert(&mut *space);
-            let db_node = NodeId::new(ns, "db:main");
-            ObjectBuilder::new(&db_node, "DB1", "DB1").organized_by(plc_node.clone()).insert(&mut *space);
-            let mut device_nodes: HashMap<String, NodeId> = HashMap::new();
-            for tag in plc.tags().iter().filter(|t| t.protocol == Protocol::OpcUa) {
-                // Прибор = объект <тип>_<имя> (уникально, без коллизий), поле — переменная внутри.
-                let parent = match &tag.device {
-                    Some(device) => {
-                        let key =
-                            format!("{}_{device}", tag.dev_type.as_deref().filter(|t| !t.is_empty()).unwrap_or("DEV"));
-                        device_nodes
-                            .entry(key.clone())
-                            .or_insert_with(|| {
-                                let id = NodeId::new(ns, format!("dev:{key}"));
-                                ObjectBuilder::new(&id, key.clone(), key.clone())
-                                    .organized_by(db_node.clone())
-                                    .insert(&mut *space);
-                                devices += 1;
-                                id
-                            })
-                            .clone()
-                    }
-                    None => db_node.clone(),
-                };
-                let id = NodeId::new(ns, tag.address.clone());
-                let browse = tag.field.clone().unwrap_or_else(|| tag.name.clone());
-                let display =
-                    if tag.unit.is_empty() { tag.name.clone() } else { format!("{} [{}]", tag.name, tag.unit) };
-                let mut builder = VariableBuilder::new(&id, browse, display)
-                    .data_type(data_type_id(tag.data_type))
-                    .value(to_variant(&tag.value, tag.data_type))
-                    .organized_by(parent);
-                if !tag.unit.is_empty() {
-                    builder = builder.description(format!("Unit: {}", tag.unit));
-                }
-                if tag.writable {
-                    builder = builder.writable();
-                }
-                builder.insert(&mut *space);
-                types.insert(tag.address.clone(), tag.data_type);
-                count += 1;
-            }
-        }
-        // Запись клиента — в состояние контроллера; узел обновит следующий шаг цикла.
-        for tag in plc.tags().iter().filter(|t| t.protocol == Protocol::OpcUa && t.writable) {
-            let (plc, address) = (plc.clone(), tag.address.clone());
-            manager.inner().add_write_callback(NodeId::new(ns, tag.address.clone()), move |dv: DataValue, _range| {
-                let Some(value) = dv.value.as_ref().and_then(from_variant) else { return StatusCode::BadTypeMismatch };
-                match plc.opcua_write(&address, &value) {
-                    Ok(()) => StatusCode::Good,
-                    Err(WriteError::NotWritable) => StatusCode::BadNotWritable,
-                    Err(WriteError::TypeMismatch) => StatusCode::BadTypeMismatch,
-                    Err(WriteError::UnknownTag) => StatusCode::BadNodeIdUnknown,
-                }
-            });
-        }
-        info!(
-            "OPC UA: {} переменных в {devices} приборах, {}",
-            count,
-            parse_endpoint(endpoint).map(|(h, p)| format!("{h}:{p}")).unwrap_or_default()
-        );
-        Ok((server, Pusher { handle, manager, ns, types }))
     }
+}
+
+/// Что положено в адресное пространство.
+struct Populated {
+    /// address → тип тега (для приведения значения узла).
+    types: HashMap<String, DataType>,
+    variables: usize,
+    devices: usize,
+}
+
+/// Объект на ПЛК и на каждый прибор, переменная на каждый OPC UA-тег (прибор = `<тип>_<имя>`, поле — внутри).
+fn populate(plc: &Plc, manager: &SimpleNodeManager, ns: u16) -> Populated {
+    let mut types = HashMap::new();
+    let mut devices = 0usize;
+    let mut space = manager.address_space().write();
+    let objects = NodeId::from(ObjectId::ObjectsFolder);
+    let plc_node = NodeId::new(ns, format!("plc:{}", plc.id));
+    ObjectBuilder::new(&plc_node, plc.id.clone(), plc.id.clone()).organized_by(objects).insert(&mut *space);
+    let db_node = NodeId::new(ns, "db:main");
+    ObjectBuilder::new(&db_node, "DB1", "DB1").organized_by(plc_node.clone()).insert(&mut *space);
+    let mut device_nodes: HashMap<String, NodeId> = HashMap::new();
+    for tag in plc.tags().iter().filter(|t| t.protocol == Protocol::OpcUa) {
+        let parent = match &tag.device {
+            Some(device) => {
+                let key = format!("{}_{device}", tag.dev_type.as_deref().filter(|t| !t.is_empty()).unwrap_or("DEV"));
+                device_nodes
+                    .entry(key.clone())
+                    .or_insert_with(|| {
+                        let id = NodeId::new(ns, format!("dev:{key}"));
+                        ObjectBuilder::new(&id, key.clone(), key.clone())
+                            .organized_by(db_node.clone())
+                            .insert(&mut *space);
+                        devices += 1;
+                        id
+                    })
+                    .clone()
+            }
+            None => db_node.clone(),
+        };
+        let id = NodeId::new(ns, tag.address.clone());
+        let browse = tag.field.clone().unwrap_or_else(|| tag.name.clone());
+        let display = if tag.unit.is_empty() { tag.name.clone() } else { format!("{} [{}]", tag.name, tag.unit) };
+        let mut builder = VariableBuilder::new(&id, browse, display)
+            .data_type(data_type_id(tag.data_type))
+            .value(to_variant(&tag.value, tag.data_type))
+            .organized_by(parent);
+        if !tag.unit.is_empty() {
+            builder = builder.description(format!("Unit: {}", tag.unit));
+        }
+        if tag.writable {
+            builder = builder.writable();
+        }
+        builder.insert(&mut *space);
+        types.insert(tag.address.clone(), tag.data_type);
+    }
+    Populated { variables: types.len(), types, devices }
+}
+
+/// Запись клиента — в состояние контроллера; узел обновит следующий шаг цикла.
+fn add_write_callbacks(plc: &Arc<Plc>, manager: &SimpleNodeManager, ns: u16) {
+    for tag in plc.tags().iter().filter(|t| t.protocol == Protocol::OpcUa && t.writable) {
+        let (plc, address) = (plc.clone(), tag.address.clone());
+        manager.inner().add_write_callback(NodeId::new(ns, tag.address.clone()), move |dv: DataValue, _range| {
+            let Some(value) = dv.value.as_ref().and_then(from_variant) else { return StatusCode::BadTypeMismatch };
+            match plc.opcua_write(&address, &value) {
+                Ok(()) => StatusCode::Good,
+                Err(WriteError::NotWritable) => StatusCode::BadNotWritable,
+                Err(WriteError::TypeMismatch) => StatusCode::BadTypeMismatch,
+                Err(WriteError::UnknownTag) => StatusCode::BadNodeIdUnknown,
+            }
+        });
+    }
+}
+
+/// Собирает сервер с адресным пространством из тегов контроллера. Сервер надо запустить (`run`).
+pub fn build(plc: &Arc<Plc>, endpoint: &str, user: Option<(&str, &str)>) -> Result<(Server, Pusher)> {
+    let (host, port) = parse_endpoint(endpoint)?;
+    let ns_uri = format!("http://{}", plc.id);
+    let (server, handle) = server_builder(plc, host.clone(), port, user)
+        .with_node_manager(simple_node_manager(
+            NamespaceMetadata { namespace_uri: ns_uri.clone(), ..Default::default() },
+            "sim",
+        ))
+        .build()
+        .map_err(|e| anyhow::anyhow!("OPC UA-сервер: {e}"))?;
+    let manager = handle.node_managers().get_of_type::<SimpleNodeManager>().context("менеджер узлов")?;
+    let ns = handle.get_namespace_index(&ns_uri).context("namespace")?;
+    ensure!(ns == 2, "namespace должен быть 2, а не {ns}: адрес узлов в базе каналов — ns=2;s=<address>");
+
+    let populated = populate(plc, &manager, ns);
+    add_write_callbacks(plc, &manager, ns);
+    info!("OPC UA: {} переменных в {} приборах, {host}:{port}", populated.variables, populated.devices);
+    Ok((server, Pusher { handle, manager, ns, types: populated.types }))
 }
 
 impl Pusher {
