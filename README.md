@@ -77,7 +77,7 @@ docker login ghcr.io -u <пользователь>        # токен с read:p
 docker run -d --name scada-gateway -p 8888:8888 \
   -v $PWD/controllers.yaml:/app/config/controllers.yaml:ro \
   -e SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092 -e DB_ENABLED=false \
-  ghcr.io/euzireael/scada_rust:v0.3.2
+  ghcr.io/euzireael/scada_rust:v0.4.0
 ```
 
 ### Из исходников
