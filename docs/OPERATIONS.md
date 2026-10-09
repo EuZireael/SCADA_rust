@@ -176,6 +176,8 @@ scada_controllers_total` дольше N минут; `increase(scada_task_restart
 `increase(scada_kafka_send_errors_total[5m]) > 0`; `increase(scada_db_rows_lost_total[5m]) > 0`;
 `sum(scada_ha_active) != 1` для пары (оба активны или оба в резерве).
 
+Первый запуск на реальном оборудовании — по ступеням, `docs/PILOT_CHECKLIST.md`.
+
 ## Чек-лист безопасности перед пуском на объекте
 
 1. **REST.** Задайте `GATEWAY_API_TOKEN` (или `…_FILE`) — случайный, от 16 символов (`openssl rand -hex 24`); без него
