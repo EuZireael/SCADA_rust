@@ -268,6 +268,7 @@ docker-compose.yml        стенд целиком;  docker-compose.moika.yml �
 | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | все переменные окружения, `controllers.yaml`, `scripts.yaml`, проверки при запуске |
 | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | запуск, здоровье, метрики, поведение при сбоях, чек-лист безопасности |
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | симптом → причина → что делать |
+| [`docs/PILOT_CHECKLIST.md`](docs/PILOT_CHECKLIST.md) | пробный запуск на реальном оборудовании: ступени от «только чтение» до монитора, критерии, когда остановиться |
 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | сборка, тесты, CI, соглашения, как расширять, релиз |
 | [`docs/MONITOR_INTEGRATION.md`](docs/MONITOR_INTEGRATION.md) | подключение монитора, что нового для него |
 | [`docs/TELEMETRY_BY_EXCEPTION.md`](docs/TELEMETRY_BY_EXCEPTION.md) | контракт публикации «по исключению», замеры |
