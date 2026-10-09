@@ -84,6 +84,7 @@ IT_DATABASE_TLS_CA=target/pg-tls/ca.crt` (`tests/db_tls.rs`). Симулятор
 |---|---|---|
 | `SIM_HOST` | `127.0.0.1` | хост симулятора |
 | `KAFKA_BOOTSTRAP` | `localhost:9094` | брокер |
+| `SIM_PAC_PORT` | `10000` | порт PAC симулятора в `controllers.yaml`; симулятору — тот же через `PAC_PORT`, если 10000 занят настоящим `ptusa_main` |
 | `CONTROLLERS_YAML` | `config/controllers.yaml` | станция |
 | `IT_DATABASE_URL` | не задан | если задан — шлюз в тесте работает с БД, проверяются журнал и REST |
 | `IT_HA_SESSION_MS` | `2000` | сессия выборов в тестах HA (брокеру CI нужно ≥ 6000) |

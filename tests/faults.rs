@@ -105,9 +105,11 @@ async fn link_loss_and_recovery() {
     let host = common::sim_host();
     let mut proxies = Vec::new();
     let mut yaml = std::fs::read_to_string(common::controllers_path()).unwrap();
-    for port in ["4840", "5020", "10000"] {
+    // Порт PAC настраивается (`SIM_PAC_PORT`, если 10000 занят настоящим ptusa_main): и в YAML, и у прокси — тот же.
+    let pac_port = std::env::var("SIM_PAC_PORT").unwrap_or_else(|_| "10000".into());
+    for (port, written) in [("4840", "4840"), ("5020", "5020"), (pac_port.as_str(), "${SIM_PAC_PORT:10000}")] {
         let proxy = Proxy::start(format!("{host}:{port}")).await;
-        let from = format!("${{SIM_HOST:127.0.0.1}}:{port}\"");
+        let from = format!("${{SIM_HOST:127.0.0.1}}:{written}\"");
         assert_eq!(yaml.matches(&from).count(), 1, "в controllers.yaml нет endpoint'а …{from}");
         yaml = yaml.replace(&from, &format!("127.0.0.1:{}\"", proxy.port));
         proxies.push(proxy);

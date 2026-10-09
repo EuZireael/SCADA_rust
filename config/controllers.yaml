@@ -2369,15 +2369,16 @@ opcua:
         # --- 04.09.2026: недостающие каналы из бэкафилла .cdbx (scada-fsw), без архивных данных ---
     # ТРЕТИЙ ТИП КОНТРОЛЛЕРА — PAC (протокол driver-master, Savushkin/ptusa).
     # В dev-стеке PAC отдаёт СИМУЛЯТОР (plc-simulator/config/replay_config.yaml, :10000).
-    #   endpoint  — pac://host:port (порт по умолчанию 10000);
+    #   endpoint  — pac://host:port (порт по умолчанию 10000; SIM_PAC_PORT — если 10000 занят, например настоящим ptusa_main);
     #   nodeId    — синтетический "pac:<id>" (OPC UA-узла у PAC нет, поле обязательное);
     #   channelId — node.id базы каналов; контроллеру он неизвестен;
     #   deviceName/fieldName — имя в ПЛК: значение = t[device][field] из снимка
-    #     GET_DEVICES_STATES, запись = __<device>:set_cmd('<field>',1,val).
+    #     GET_DEVICES_STATES, запись = __<device>:set_cmd('<field>',1,val); у поля-массива RT_PAR_F[12] индекс — отдельным
+    #     аргументом: set_cmd('RT_PAR_F',12,val).
     # ========================================================================
     - id: pac-demo-001
       name: "PAC Savushkin"
-      endpoint: "pac://${SIM_HOST:127.0.0.1}:10000"
+      endpoint: "pac://${SIM_HOST:127.0.0.1}:${SIM_PAC_PORT:10000}"
       enabled: true
       tags:
         - {name: "Барановичи-1.BN1_MCA1.V_ST_1.LINE1V0.ST", nodeId: "pac:385", channelId: 385, deviceName: "LINE1V0", fieldName: "ST", deviceType: "V", protocol: pac, dataType: INT32, pollingRate: 2000, enabled: true, writable: true}

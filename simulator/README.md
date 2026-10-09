@@ -24,7 +24,7 @@ docker build -t simulator ./simulator                   # образ (испол
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
 | `OPCUA_ENDPOINT` | из конфигурации (`opc.tcp://0.0.0.0:4840`) | адрес привязки и анонса OPC UA; в Docker — резолвимое в сети имя (`opc.tcp://simulator:4840`) |
-| `MODBUS_PORT`, `PAC_PORT` | из конфигурации (5020, 10000) | порты Modbus и PAC |
+| `MODBUS_PORT`, `PAC_PORT` | из конфигурации (5020, 10000) | порты Modbus и PAC; если 10000 занят (например, настоящим `ptusa_main`), укажите другой `PAC_PORT` и тот же `SIM_PAC_PORT` шлюзу и тестам |
 | `SIM_OPCUA_USER`, `SIM_OPCUA_PASSWORD` | — | включить защищённые конечные точки (Basic256Sha256: Sign и SignAndEncrypt) для пользователя; нужны тестам защищённого OPC UA |
 | `RUST_LOG` | `info,opcua=warn` | уровни журнала |
 

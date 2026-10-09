@@ -10,7 +10,7 @@
 #   8888 — HTTP шлюза (/actuator/health, /actuator/prometheus, /api/*)
 #   9094 — Kafka для монитора и тестов
 #   5433 — PostgreSQL
-#   4840 / 5020 / 10000 — OPC UA / Modbus / PAC симулятора
+#   4840 / 5020 / 10000 — OPC UA / Modbus / PAC симулятора (порт PAC на хосте — SIM_PAC_PORT)
 # ============================================================================
 name: scada-rs
 
@@ -75,7 +75,7 @@ services:
     ports:
       - "4840:4840"
       - "5020:5020"
-      - "10000:10000"
+      - "${SIM_PAC_PORT:-10000}:10000"   # SIM_PAC_PORT — если 10000 на хосте занят (например, настоящим ptusa_main)
     healthcheck:
       test: ["CMD", "/app/simulator", "healthcheck"]
       interval: 10s
