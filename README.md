@@ -2,6 +2,7 @@
 
 [![CI/CD](https://github.com/EuZireael/SCADA_rust/actions/workflows/ci.yml/badge.svg)](https://github.com/EuZireael/SCADA_rust/actions/workflows/ci.yml)
 [![Audit](https://github.com/EuZireael/SCADA_rust/actions/workflows/audit.yml/badge.svg)](https://github.com/EuZireael/SCADA_rust/actions/workflows/audit.yml)
+[![Release](https://img.shields.io/github/v/release/EuZireael/SCADA_rust?sort=semver)](https://github.com/EuZireael/SCADA_rust/releases/latest)
 
 **Шлюз сбора данных АСУ ТП.** Опрашивает промышленные контроллеры по **OPC UA**, **Modbus TCP** и **PAC**
 (driver-master, Savushkin/ptusa), публикует телеметрию, события и алармы в **Kafka** для монитора, принимает от него
@@ -26,7 +27,7 @@ flowchart LR
 | | Java-шлюз | Rust-шлюз |
 |---|---|---|
 | Память (стенд, 2517 тегов) | 823 МБ | 14–27 МБ |
-| Образ | 646 МБ | ≈ 140 МБ |
+| Образ | 646 МБ | ≈ 165 МБ (v0.4.0) |
 | Старт до связи с контроллерами | 17,5 с | < 1 с |
 | Остановка по SIGTERM | — | 0,3 с |
 | Обнаружение обрыва OPC UA | 30 с | 1 с |
