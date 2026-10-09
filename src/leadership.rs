@@ -18,10 +18,13 @@ use tracing::{info, warn};
 /// Смена роли: новая роль и причина (для журнала).
 #[derive(Debug, Clone, PartialEq)]
 pub struct RoleChange {
+    /// Новая роль: `true` — активный.
     pub active: bool,
+    /// Причина смены (для журнала).
     pub reason: String,
 }
 
+/// Роль экземпляра и всё, что от неё зависит. Читается на горячем пути атомарно; смена роли — одна точка, [`Leadership::set_active`].
 pub struct Leadership {
     enabled: bool,
     instance_id: String,
@@ -47,6 +50,7 @@ impl Leadership {
         Self::build(true, instance_id, group_id, false, "ожидание выборов", gauge)
     }
 
+    /// Общий конструктор: начальная роль, метрика, канал оповещений о смене роли.
     fn build(
         enabled: bool,
         instance_id: String,
@@ -74,26 +78,32 @@ impl Leadership {
         self.active.load(Ordering::Acquire)
     }
 
+    /// Включено ли резервирование.
     pub fn is_ha_enabled(&self) -> bool {
         self.enabled
     }
 
+    /// Имя экземпляра.
     pub fn instance_id(&self) -> &str {
         &self.instance_id
     }
 
+    /// Группа выборов (пусто без резервирования).
     pub fn group_id(&self) -> &str {
         &self.group_id
     }
 
+    /// Сколько раз экземпляр становился активным: по росту счётчика обработчики значений узнают, что фильтры публикации надо сбросить.
     pub fn activations(&self) -> u64 {
         self.activations.load(Ordering::Acquire)
     }
 
+    /// Когда роль менялась в последний раз.
     pub fn since(&self) -> DateTime<Utc> {
         *self.since.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
+    /// Подписка на смены роли (`watch`: сразу видно текущее значение).
     pub fn subscribe(&self) -> watch::Receiver<RoleChange> {
         self.tx.subscribe()
     }

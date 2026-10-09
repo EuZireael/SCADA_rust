@@ -19,6 +19,7 @@ use scada_gateway::metrics::Metrics;
 use scada_gateway::script::Scripts;
 use scada_gateway::startup::{self, Tasks};
 
+/// Точка входа: `healthcheck` для проверки контейнера или многопоточный tokio-рантайм с [`run`].
 fn main() -> Result<()> {
     // `scada-gateway healthcheck` — проверка для HEALTHCHECK контейнера без curl в образе.
     if std::env::args().nth(1).as_deref() == Some("healthcheck") {
@@ -43,6 +44,7 @@ fn healthcheck() -> bool {
     resp.split_whitespace().nth(1) == Some("200") && resp.contains(r#""status":"UP""#)
 }
 
+/// Запуск шлюза по шагам и ожидание сигнала остановки; порядок шагов — в `docs/ARCHITECTURE.md`.
 async fn run() -> Result<()> {
     startup::init_tracing();
     let settings = Settings::from_env()?;

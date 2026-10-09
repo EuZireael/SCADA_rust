@@ -18,6 +18,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result, bail, ensure};
 
+/// Сигнатура файла архива.
 const MAGIC: &[u8; 8] = b"SIMARC01";
 
 /// Что берётся из серии.
@@ -68,6 +69,7 @@ pub struct ReplaySpec {
 }
 
 impl ReplaySpec {
+    /// Спецификация по умолчанию: значение серии без смещения и ограничений.
     #[cfg(test)]
     pub fn new(source: impl Into<String>) -> Self {
         ReplaySpec {
@@ -112,6 +114,7 @@ impl Archive {
         Self::parse(&raw)
     }
 
+    /// Разобрать бинарный архив (`SIMARC01`): начало, длительность и временные ряды; обрезанный файл — ошибка.
     pub fn parse(raw: &[u8]) -> Result<Self> {
         let mut r = Cursor { buf: raw, pos: 0 };
         ensure!(r.take(8)? == MAGIC, "архив replay: неверная сигнатура (ожидается SIMARC01)");
@@ -136,12 +139,14 @@ impl Archive {
     }
 }
 
+/// Чтение двоичного буфера с проверкой границ.
 struct Cursor<'a> {
     buf: &'a [u8],
     pos: usize,
 }
 
 impl<'a> Cursor<'a> {
+    /// Взять следующие `n` байт или ошибка «файл обрезан».
     fn take(&mut self, n: usize) -> Result<&'a [u8]> {
         let end = self.pos.checked_add(n).filter(|&e| e <= self.buf.len());
         let Some(end) = end else { bail!("архив replay: файл обрезан") };
@@ -151,6 +156,7 @@ impl<'a> Cursor<'a> {
     }
 }
 
+/// Ключ кэша отфильтрованных серий (источник и пределы).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct FilterKey {
     source: String,
@@ -158,6 +164,7 @@ struct FilterKey {
     vmax: Option<u64>,
 }
 
+/// Ключ кэша накопленных интегралов (серия, порог и значения «включено»/«выключено»).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct CumKey {
     filter: FilterKey,
@@ -166,6 +173,7 @@ struct CumKey {
     off: u64,
 }
 
+/// Число как биты — чтобы использовать в ключе хеш-таблицы.
 fn bits(v: Option<f64>) -> Option<u64> {
     v.map(f64::to_bits)
 }
@@ -190,6 +198,7 @@ pub struct Replay {
 }
 
 impl Replay {
+    /// Реплей поверх архива: скорость и зацикливание.
     pub fn new(archive: Archive, speed: f64, looped: bool) -> Self {
         Replay {
             duration: archive.duration,
@@ -202,10 +211,12 @@ impl Replay {
         }
     }
 
+    /// Сколько рядов в архиве.
     pub fn series_count(&self) -> usize {
         self.series.len()
     }
 
+    /// Есть ли в архиве ряд с таким идентификатором.
     #[cfg(test)]
     pub fn has(&self, id: &str) -> bool {
         self.series.contains_key(id)
@@ -261,6 +272,7 @@ impl Replay {
         Some(result)
     }
 
+    /// Ряд источника с отброшенными значениями вне `[vmin, vmax]` (обрыв датчика); результат кэшируется.
     fn filtered_series(&self, source: &str, vmin: Option<f64>, vmax: Option<f64>) -> Option<Arc<Series>> {
         let key = FilterKey { source: source.to_string(), vmin: bits(vmin), vmax: bits(vmax) };
         let mut cache = self.filtered.lock().expect("кэш серий");
@@ -283,6 +295,7 @@ impl Replay {
             .clone()
     }
 
+    /// Сколько секунд прошло с последней записи ряда до позиции `pos`.
     fn age(&self, t: &[f64], pos: f64) -> f64 {
         let count = count_le(t, pos);
         if count > 0 {
@@ -292,6 +305,7 @@ impl Replay {
         if self.looped { pos + (self.duration - t[t.len() - 1]) } else { pos }
     }
 
+    /// Интеграл ряда до момента `elapsed` (для счётчиков времени работы).
     fn integral(&self, spec: &ReplaySpec, elapsed: f64) -> Option<f64> {
         let cum = self.cumulative_for(spec)?;
         let (loops, pos) = if self.looped && self.duration > 0.0 {
@@ -307,6 +321,7 @@ impl Replay {
         Some(loops * cum.total + part)
     }
 
+    /// Накопленные интегралы ряда для спецификации; кэшируются.
     fn cumulative_for(&self, spec: &ReplaySpec) -> Option<Arc<Cumulative>> {
         let key = CumKey {
             filter: FilterKey { source: spec.source.clone(), vmin: bits(spec.valid_min), vmax: bits(spec.valid_max) },

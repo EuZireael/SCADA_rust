@@ -31,30 +31,46 @@ struct Breaker {
 /// Итог обработки значения цепочкой скриптов.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Processed {
+    /// Значение после скрипта; `None` — BAD.
     pub value: Option<TagValue>,
+    /// Качество после скрипта.
     pub quality: Quality,
 }
 
+/// Изменяемая часть скрипта под мьютексом: Lua-стейт и найденные в нём функции.
 struct Inner {
+    /// Песочница Lua.
     lua: Lua,
+    /// Функция `process` из скрипта.
     process: Function,
+    /// Функция `write` (необязательная).
     write: Option<Function>,
+    /// Параметры привязки (`ctx.params`).
     params: Table,
     /// `ctx` по имени канала: у каждого свой `state`.
     ctx: HashMap<String, Table>,
 }
 
+/// Скрипт, привязанный к маскам тегов: свой Lua-стейт, предохранитель и состояние каналов.
 pub struct BoundScript {
+    /// Имя файла скрипта.
     pub file: String,
+    /// Маски имён тегов, к которым скрипт привязан.
     pub globs: Vec<TagGlob>,
+    /// Лимит времени одного вызова.
     timeout: Duration,
+    /// Есть ли функция `write`.
     pub(super) has_write: bool,
+    /// Lua-стейт: вызовы идут по одному.
     inner: Mutex<Inner>,
+    /// Предохранитель от зависшего скрипта.
     breaker: Mutex<Breaker>,
+    /// Длительность паузы предохранителя.
     trip_pause: Duration,
 }
 
 impl BoundScript {
+    /// Загрузить скрипт: создать песочницу, выполнить тело файла (оно определяет `process` и необязательную `write`) и убедиться, что `process` есть.
     pub(super) fn new(
         file: &str,
         source: &str,
@@ -86,6 +102,7 @@ impl BoundScript {
         })
     }
 
+    /// Подходит ли имя тега под одну из масок привязки.
     pub(super) fn matches(&self, name: &str) -> bool {
         self.globs.iter().any(|g| g.matches(name))
     }
@@ -187,6 +204,7 @@ impl BoundScript {
     }
 }
 
+/// Таблица `ctx` канала: создаётся при первом обращении, дальше возвращается та же — в ней живёт `state`.
 fn ctx_for<'a>(lua: &Lua, cache: &'a mut HashMap<String, Table>, params: &Table, tag: &Tag) -> mlua::Result<&'a Table> {
     if !cache.contains_key(&tag.name) {
         let ctx = lua.create_table()?;

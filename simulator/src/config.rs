@@ -8,6 +8,7 @@ use serde::{Deserialize, Deserializer};
 use crate::replay::{Mode, ReplaySpec};
 use crate::value::{DataType, Value};
 
+/// Корень конфигурации симулятора (`replay_config.yaml`): контроллер, порты Modbus и PAC, реплей архива.
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub plc: PlcCfg,
@@ -19,14 +20,17 @@ pub struct Config {
     pub replay: ReplayCfg,
 }
 
+/// Порт Modbus TCP по умолчанию.
 fn default_modbus_port() -> u16 {
     5020
 }
 
+/// Порт PAC (driver-master) по умолчанию.
 fn default_pac_port() -> u16 {
     10000
 }
 
+/// Контроллер: идентификатор, имя, адрес OPC UA, период цикла и блоки данных с тегами.
 #[derive(Debug, Deserialize)]
 pub struct PlcCfg {
     pub id: String,
@@ -37,10 +41,12 @@ pub struct PlcCfg {
     pub data_blocks: Vec<DbCfg>,
 }
 
+/// Период цикла обновления по умолчанию, секунд.
 fn default_update_rate() -> f64 {
     0.5
 }
 
+/// Блок данных контроллера: группа тегов.
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)] // db_number и name описывают DB контроллера; адресация от них не зависит
 pub struct DbCfg {
@@ -49,6 +55,7 @@ pub struct DbCfg {
     pub tags: Vec<TagCfg>,
 }
 
+/// Реплей архива: откуда брать значения и с какой скоростью.
 #[derive(Debug, Default, Deserialize)]
 pub struct ReplayCfg {
     #[serde(default)]
@@ -61,10 +68,12 @@ pub struct ReplayCfg {
     pub looped: bool,
 }
 
+/// Скорость реплея по умолчанию: реальное время.
 fn default_speed() -> f64 {
     1.0
 }
 
+/// Умолчание `true` для serde.
 fn default_true() -> bool {
     true
 }
@@ -79,6 +88,7 @@ fn text<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
     })
 }
 
+/// То же для необязательного поля.
 fn opt_text<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
     Ok(match Option::<serde_yaml_ng::Value>::deserialize(d)? {
         None | Some(serde_yaml_ng::Value::Null) => None,
@@ -172,10 +182,12 @@ pub struct RequiresCfg {
 }
 
 impl TagCfg {
+    /// Адрес тега: `address` из YAML, а если не задан — имя.
     pub fn address(&self) -> String {
         self.address.clone().unwrap_or_else(|| self.name.clone())
     }
 
+    /// Тип данных тега; неизвестное имя — ошибка с именем тега.
     pub fn parsed_type(&self) -> Result<DataType> {
         DataType::parse(&self.data_type)
             .with_context(|| format!("тег {}: неизвестный type={:?}", self.name, self.data_type))
@@ -217,6 +229,7 @@ impl TagCfg {
     }
 }
 
+/// Прочитать и разобрать конфигурацию; пустой список блоков данных — ошибка.
 pub fn load(path: &Path) -> Result<Config> {
     let raw = std::fs::read_to_string(path).with_context(|| format!("конфигурация {}", path.display()))?;
     let cfg: Config = serde_yaml_ng::from_str(&raw).with_context(|| format!("конфигурация {}", path.display()))?;

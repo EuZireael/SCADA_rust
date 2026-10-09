@@ -11,6 +11,7 @@ use crate::config::TagCfg;
 use crate::replay::ReplaySpec;
 use crate::value::{DataType, Value};
 
+/// Протокол, по которому тег выставляется клиентам.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Protocol {
     OpcUa,
@@ -19,12 +20,18 @@ pub enum Protocol {
     Pac,
 }
 
+/// Как значение раскладывается по регистрам Modbus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModbusType {
+    /// Два регистра, младший первым (как `struct.pack('<f')`).
     Float32,
+    /// Два регистра.
     Int32,
+    /// Один регистр со знаком.
     Int16,
+    /// Один регистр без знака.
     Uint16,
+    /// Один регистр: 0 или 1.
     Bool,
 }
 
@@ -83,6 +90,7 @@ impl ModbusType {
     }
 }
 
+/// Тег симулятора: адрес, тип, протокол, право записи, значение и правила прошивки (какие записи игнорировать).
 #[derive(Debug, Clone)]
 pub struct Tag {
     pub name: String,
@@ -124,6 +132,7 @@ pub struct Requires {
 }
 
 impl Tag {
+    /// Тег из записи конфигурации; неизвестный тип или протокол — ошибка с именем тега.
     pub fn from_config(cfg: &TagCfg) -> Result<Self> {
         let data_type = cfg.parsed_type()?;
         let protocol = match cfg.protocol.as_deref().unwrap_or("opcua") {

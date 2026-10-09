@@ -20,6 +20,7 @@ use crate::opcua::{self, ConnectOptions, OpcConnection, ReadValueId};
 use crate::pac::{self, PacConnection};
 use crate::telemetry::{Processor, all_bad};
 
+/// Опрос контроллера до остановки: цикл выбирается по протоколу. Запускается под надзором — выход раньше остановки считается сбоем.
 pub async fn run(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: CancellationToken) {
     let c = &handle.ctrl;
     info!("📡 {} ({:?}) {} — тегов {}, период {} мс", c.name, c.kind, c.endpoint, c.tags.len(), c.cycle_period_ms());
@@ -35,10 +36,12 @@ pub async fn run(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancellat
     }
 }
 
+/// Теги контроллера одного протокола.
 fn tags_of(handle: &ControllerHandle, protocol: Protocol) -> Vec<Arc<Tag>> {
     handle.ctrl.tags.iter().filter(|t| t.protocol == protocol).cloned().collect()
 }
 
+/// Тикер цикла опроса с периодом контроллера; пропущенные тики не догоняются (следующий — через период после опоздавшего).
 fn ticker(handle: &ControllerHandle) -> tokio::time::Interval {
     let mut t = interval(Duration::from_millis(handle.ctrl.cycle_period_ms()));
     t.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -54,6 +57,7 @@ struct CycleTimer {
 }
 
 impl CycleTimer {
+    /// Начать замер цикла: результат запишется при выходе из области видимости.
     fn start(app: &App, handle: &ControllerHandle) -> Self {
         CycleTimer {
             started: std::time::Instant::now(),
@@ -218,6 +222,7 @@ async fn read_opcua_cycle(
     }
 }
 
+/// Цикл OPC UA: подключение → чтение до обрыва → закрытие и пересоздание сессии; пока подключения нет — кадры BAD на каждой попытке.
 async fn run_opcua(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: CancellationToken) {
     let gw = app.settings.gateway.clone();
     let (tags, nodes) = opcua_nodes(&handle);
@@ -240,6 +245,7 @@ async fn run_opcua(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancell
         };
         fails = 0;
         handle.touch();
+        // С этого момента команды записи используют эту сессию.
         handle.set_opc_connection(Some(conn.clone()));
         info!("✅ OPC UA socket up: {} — опрос запущен", handle.ctrl.name);
 
@@ -254,6 +260,7 @@ async fn run_opcua(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancell
             }
         }
         handle.set_opc_connection(None);
+        // Закрываем сессию явно: иначе сервер держал бы её до своего таймаута.
         conn.close().await;
         if cancel.is_cancelled() || !pause(&cancel, Duration::from_secs(1)).await {
             return;
@@ -263,6 +270,7 @@ async fn run_opcua(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancell
 
 // ------------------------------------------------------------------------ Modbus --
 
+/// Цикл Modbus: чтение плана каждый тик; сбой — кадры BAD, а соединение клиент сбрасывает сам.
 async fn run_modbus(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: CancellationToken) {
     let gw = &app.settings.gateway;
     let tags = tags_of(&handle, Protocol::Modbus);
@@ -305,6 +313,7 @@ async fn run_modbus(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancel
 
 // --------------------------------------------------------------------------- PAC --
 
+/// Цикл PAC: соединение хранится в `handle.pac` и делится с командами; сбой — соединение сбрасывается и пересоздаётся на следующем тике.
 async fn run_pac(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: CancellationToken) {
     let gw = &app.settings.gateway;
     let tags = tags_of(&handle, Protocol::Pac);
@@ -318,6 +327,7 @@ async fn run_pac(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancellat
             _ = tick.tick() => {}
         }
         let _cycle = CycleTimer::start(&app, &handle);
+        // Замок соединения PAC: команды записи идут по тому же соединению и ждут, пока опрос его отпустит.
         let mut guard = handle.pac.lock().await;
         if guard.is_none() {
             match PacConnection::connect(&host, port, gw.pac_op_timeout).await {
@@ -345,6 +355,7 @@ async fn run_pac(app: Arc<App>, handle: Arc<ControllerHandle>, cancel: Cancellat
                         Reading { tag: tag.clone(), value, quality, timestamp: ts }
                     })
                     .collect();
+                // Значения сняты: соединение свободно для команд, пока идёт обработка.
                 drop(guard);
                 processor.process(&readings);
                 app.mark_up(&handle);

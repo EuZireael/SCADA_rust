@@ -9,10 +9,12 @@ pub struct TagGlob {
 }
 
 impl TagGlob {
+    /// Маска из строки: `*` — любые символы, `?` — один, остальное буквально (в том числе `[` и `]`).
     pub fn new(glob: &str) -> Self {
         TagGlob { raw: glob.to_string(), pattern: glob.chars().collect() }
     }
 
+    /// Подходит ли имя тега.
     pub fn matches(&self, name: &str) -> bool {
         let text: Vec<char> = name.chars().collect();
         let p = &self.pattern;

@@ -17,6 +17,7 @@ use super::lua::{self, PacLua};
 use super::protocol::*;
 use crate::model::TagValue;
 
+/// Соединение с PAC: сокет, Lua-стейт и счётчик пакетов запроса.
 pub struct PacConnection {
     stream: TcpStream,
     lua: PacLua,
@@ -116,6 +117,7 @@ impl PacConnection {
         inflate(&body).context("PAC: ошибка zlib-распаковки ответа")
     }
 
+    /// Прочитать ровно `buf.len()` байт с таймаутом операции.
     async fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
         timeout(self.op_timeout, self.stream.read_exact(buf))
             .await
@@ -143,7 +145,9 @@ pub mod fake {
     use super::super::protocol::*;
 
     // Как у ptusa: тела — C-строки с завершающим \0.
+    /// Ответ GET_INFO_ON_CONNECT фейкового PAC: версия протокола и имя (тело — C-строка с завершающим \0, как у ptusa).
     pub const INFO: &str = "protocol_version = 104; PAC_name = \"FAKE\"; params_CRC=0;\n\0";
+    /// Ответ GET_DEVICES_STATES фейкового PAC: два прибора и объект с массивом параметров.
     pub const STATES: &str = "t=\n\t{\n\tLINE1V0={M=0, ST=1},\n\t}\n\
         t.OBJECT1 = t.OBJECT1 or {}\nt.OBJECT1=\n\t{\n\tRT_PAR_F=\n\t\t{\n\t\t0, 2.5,\n\t\t},\n\t}\n\0";
 

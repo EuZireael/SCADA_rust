@@ -35,6 +35,7 @@ use crate::plc::Plc;
 use crate::replay::{Archive, Replay};
 use crate::tag::Protocol;
 
+/// Порт из переменной окружения или значение по умолчанию.
 fn env_port(name: &str, default: u16) -> Result<u16> {
     match std::env::var(name) {
         Ok(v) if !v.is_empty() => v.trim().parse().with_context(|| format!("{name}={v}")),
@@ -70,6 +71,7 @@ fn pac_devices(plc: &Plc) -> Vec<PacDevice> {
     devices
 }
 
+/// `simulator healthcheck`: порты Modbus и PAC принимают соединения (проверка контейнера).
 async fn healthcheck() -> Result<()> {
     let cfg_path = arg(2).unwrap_or_else(|| DEFAULT_CONFIG.into());
     let cfg = config::load(Path::new(&cfg_path))?;
@@ -82,6 +84,7 @@ async fn healthcheck() -> Result<()> {
     Ok(())
 }
 
+/// Конфигурация по умолчанию.
 const DEFAULT_CONFIG: &str = "config/replay_config.yaml";
 
 /// Аргумент командной строки по номеру (после имени подкоманды).
@@ -89,6 +92,7 @@ fn arg(n: usize) -> Option<String> {
     std::env::args().nth(n)
 }
 
+/// Порт из аргумента командной строки (по умолчанию 10000).
 fn port_arg(n: usize) -> Result<u16> {
     Ok(arg(n).map(|p| p.parse()).transpose().context("порт")?.unwrap_or(10000))
 }
@@ -112,6 +116,7 @@ async fn subcommand() -> Option<Result<()>> {
     }
 }
 
+/// Загрузить архив, если реплей включён в конфигурации.
 fn load_replay(cfg: &config::Config, config_path: &Path) -> Result<Option<Replay>> {
     if !cfg.replay.enabled {
         return Ok(None);
@@ -186,6 +191,7 @@ fn spawn_cycle(
     })
 }
 
+/// Запуск: подкоманда или полный симулятор (ПЛК, Modbus, PAC, OPC UA, цикл обновления).
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -222,6 +228,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Ждать SIGTERM или Ctrl-C.
 async fn shutdown_signal() {
     #[cfg(unix)]
     {

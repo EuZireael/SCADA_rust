@@ -23,6 +23,7 @@ pub const MEMORY_LIMIT: usize = 64 * 1024 * 1024;
 /// опроса и держит соединение PAC (и команды к нему), поэтому зависать не должен.
 pub const TIME_BUDGET: Duration = Duration::from_secs(1);
 
+/// Lua-стейт соединения PAC в песочнице: наполняется ответами контроллера, из него читаются значения тегов.
 pub struct PacLua {
     lua: Lua,
     time_budget: Duration,
@@ -36,6 +37,7 @@ impl PacLua {
         Self::with_limits(MEMORY_LIMIT, TIME_BUDGET)
     }
 
+    /// Стейт с заданными потолками памяти и времени на скрипт (для тестов).
     pub fn with_limits(memory: usize, time_budget: Duration) -> Result<Self> {
         Ok(PacLua { lua: sandbox::new_lua(memory)?, time_budget })
     }
@@ -84,6 +86,7 @@ fn field_value(dev: &Table, field: &str) -> Option<Value> {
     (!value.is_nil()).then_some(value)
 }
 
+/// Значение Lua как число (строка с числом тоже годится).
 fn number(v: &Value) -> Option<f64> {
     match v {
         Value::Integer(i) => Some(*i as f64),
@@ -93,6 +96,7 @@ fn number(v: &Value) -> Option<f64> {
     }
 }
 
+/// Значение Lua → значение тега по его типу; несовместимое — `None`.
 fn convert(v: &Value, data_type: &str) -> Option<TagValue> {
     if model::is_string(data_type) {
         return Some(TagValue::Text(match v {

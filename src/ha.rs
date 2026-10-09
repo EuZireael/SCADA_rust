@@ -47,12 +47,16 @@ const MIN_YIELD_PAUSE: Duration = Duration::from_secs(5);
 /// Пауза перед повтором после ошибки выборов (брокер недоступен, неверная настройка).
 const RETRY_BACKOFF: Duration = Duration::from_secs(2);
 
+/// Контекст консьюмера выборов: колбэк ребаланса переводит роль в резерв ДО того, как партицию получит другой экземпляр.
 struct ElectionContext {
+    /// Роль экземпляра.
     leadership: Arc<Leadership>,
+    /// Служебный топик выборов.
     topic: String,
 }
 
 impl ElectionContext {
+    /// Есть ли в списке партиция выборов (нулевая партиция служебного топика).
     fn holds_leader_partition(&self, list: &TopicPartitionList) -> bool {
         list.elements().iter().any(|e| e.topic() == self.topic && e.partition() == 0)
     }
@@ -111,6 +115,7 @@ struct BlindTracker {
 }
 
 impl BlindTracker {
+    /// Сколько непрерывно длится слепота; любая связь с контроллером обнуляет отсчёт.
     fn update(&mut self, blind: bool, now: Instant) -> Duration {
         if !blind {
             self.since = None;
@@ -120,6 +125,7 @@ impl BlindTracker {
     }
 }
 
+/// Цикл выборов: сессия за сессией до остановки; ошибка — роль «резерв», пауза и повтор.
 fn election_loop(
     ha: HaSettings,
     kafka_settings: KafkaSettings,
@@ -146,6 +152,7 @@ fn election_loop(
     leadership.set_active(false, "выборы остановлены");
 }
 
+/// Одна сессия в группе выборов. Возвращается, когда шлюз остановлен или лидерство передано партнёру (после паузы вне группы); ошибка — `Err`, сессию пересоздаёт [`election_loop`].
 fn run_session(
     ha: &HaSettings,
     kafka_settings: &KafkaSettings,
@@ -232,10 +239,12 @@ fn has_peer(consumer: &BaseConsumer<ElectionContext>, group: &str) -> bool {
     }
 }
 
+/// Ошибка, после которой сессию надо пересоздавать (а не временная недоступность брокера, которую librdkafka переживает сама).
 fn is_fatal(e: &KafkaError) -> bool {
     matches!(e, KafkaError::MessageConsumptionFatal(_) | KafkaError::ClientCreation(_))
 }
 
+/// Спать не дольше `d`, просыпаясь при остановке (поток выборов — обычный, не async).
 fn sleep_or_cancel(cancel: &CancellationToken, d: Duration) {
     let until = Instant::now() + d;
     while Instant::now() < until && !cancel.is_cancelled() {

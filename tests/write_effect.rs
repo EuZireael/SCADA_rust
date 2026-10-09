@@ -21,6 +21,7 @@ use scada_gateway::opcua::{self, OpcConnection};
 const VALVE_ST: &str = "Барановичи-1.BN1_MCA1.V_ST_2.LINE2V0.ST";
 const VALVE_M: &str = "Барановичи-1.BN1_MCA1.V_M_2.LINE2V0.M";
 
+/// Отправить команду через Kafka и вернуть JSON результата.
 async fn command(gw: &Gateway, producer: &FutureProducer, results: &StreamConsumer, tag: &str, value: Value) -> Value {
     let id = uuid::Uuid::new_v4().to_string();
     let body = json!({"commandId": id, "tagName": tag, "value": value, "requestedBy": "it"}).to_string();
@@ -42,6 +43,7 @@ async fn command(gw: &Gateway, producer: &FutureProducer, results: &StreamConsum
     panic!("нет результата команды {tag} = {value}\n{}", gw.log_tail());
 }
 
+/// Клапан, которым владеет программа ПЛК: в автоматическом режиме запись принята, но не действует — `FAILED_NOT_APPLIED`; после перевода в ручной режим (`M=1`) — `APPLIED`. Режим возвращается в исходное состояние.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "нужны симулятор и Kafka: cargo test -- --ignored"]
 async fn write_to_a_program_owned_valve_is_reported_as_not_applied_until_manual_mode() {

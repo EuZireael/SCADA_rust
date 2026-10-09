@@ -19,6 +19,7 @@ pub(super) fn to_lua(lua: &Lua, v: Option<&TagValue>) -> mlua::Result<Value> {
     })
 }
 
+/// Значение Lua для текста сообщения об ошибке.
 pub(super) fn lua_text(v: &Value) -> String {
     match v {
         Value::String(s) => s.to_string_lossy(),
@@ -45,6 +46,7 @@ pub(super) fn from_lua(
     let is = |f: fn(&str) -> bool| data_type.is_some_and(f);
     match v {
         Value::Nil => Ok(None),
+        // Булево из скрипта приводится к типу канала: числовому — 1/0, логическому — bool.
         Value::Boolean(b) => Ok(Some(if data_type.is_some() && !is(model::is_bool) && !is(model::is_string) {
             if is(model::is_int) { TagValue::Int(i64::from(*b)) } else { TagValue::F64(f64::from(u8::from(*b))) }
         } else {
@@ -56,6 +58,7 @@ pub(super) fn from_lua(
                 Value::Integer(i) => *i as f64,
                 _ => unreachable!(),
             };
+            // NaN и inf в канал не пропускаем: монитор строит по числу график.
             if !d.is_finite() {
                 return Err(format!("значение не число: {d}"));
             }
@@ -79,6 +82,7 @@ pub(super) fn from_lua(
     }
 }
 
+/// Значение команды (JSON) → Lua: числа и bool, остальное — `nil`.
 pub(super) fn json_to_lua(v: &Json) -> Value {
     match v {
         Json::Bool(b) => Value::Boolean(*b),
@@ -87,6 +91,7 @@ pub(super) fn json_to_lua(v: &Json) -> Value {
     }
 }
 
+/// Значение канала → JSON для `write`; целое вещественное пишется целым.
 pub(super) fn tag_value_to_json(v: &TagValue) -> Json {
     match v {
         TagValue::Bool(b) => json!(b),
@@ -98,7 +103,9 @@ pub(super) fn tag_value_to_json(v: &TagValue) -> Json {
     }
 }
 
+/// Параметры привязки из YAML → таблица Lua (`ctx.params`).
 pub(super) fn yaml_to_lua(lua: &Lua, v: &serde_yaml_ng::Value) -> Result<Table> {
+    /// Рекурсивный перевод одного значения YAML.
     fn value(lua: &Lua, v: &serde_yaml_ng::Value) -> Result<Value> {
         use serde_yaml_ng::Value as Y;
         Ok(match v {

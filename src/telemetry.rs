@@ -51,6 +51,7 @@ pub struct Processor {
 }
 
 impl Processor {
+    /// Обработчик контроллера: хранит состояние по слоту на каждый его тег.
     pub fn new(app: Arc<App>, controller: Arc<ControllerHandle>) -> Self {
         let name = &controller.ctrl.name;
         let states = (0..controller.ctrl.tags.len())
@@ -219,7 +220,9 @@ pub fn all_bad(tags: &[Arc<Tag>]) -> Vec<Reading> {
 
 // ---------------------------------------------------------------------- алармы --
 
+/// Активное нарушение тега: условие, идентификатор аларма и нарушенный порог.
 struct ActiveAlarm {
+    /// `HIGH` или `LOW`.
     condition: &'static str,
     alarm_id: String,
     severity: &'static str,
@@ -234,6 +237,7 @@ pub struct AlarmEvaluator {
 }
 
 impl AlarmEvaluator {
+    /// Проверить значение тега на выход за пределы: возникновение и снятие аларма уходят в события и Kafka.
     pub fn evaluate(&mut self, app: &App, ctrl: &ControllerHandle, tag: &Tag, value: f64) {
         if let Some(action) = self.decide(tag, value) {
             match action {
@@ -259,6 +263,7 @@ impl AlarmEvaluator {
         }
     }
 
+    /// Состояние аларма тега после нового значения: возникновение (в том числе смена условия), снятие с гистерезисом 2 % диапазона или «ничего» (то же нарушение не повторяется — анти-флуд).
     fn decide(&mut self, tag: &Tag, value: f64) -> Option<AlarmAction> {
         let (min, max) = (tag.min_value, tag.max_value);
         if min.is_none() && max.is_none() {
@@ -305,6 +310,7 @@ impl AlarmEvaluator {
     }
 }
 
+/// Что сделать после нового значения: поднять аларм (сняв прежний, если условие сменилось) или снять.
 enum AlarmAction {
     Raise {
         alarm_id: String,
@@ -316,6 +322,7 @@ enum AlarmAction {
     Clear(ActiveAlarm),
 }
 
+/// Снятие аларма: событие `ALARM_CLEARED` и сообщение в Kafka.
 fn publish_clear(app: &App, ctrl: &ControllerHandle, tag: &Tag, prev: &ActiveAlarm, value: f64) {
     info!("✅ Аларм снят: {} ({value:.2})", tag.name);
     app.events.emit(
@@ -337,6 +344,7 @@ fn publish_clear(app: &App, ctrl: &ControllerHandle, tag: &Tag, prev: &ActiveAla
     );
 }
 
+/// Аларм или его снятие (`cleared`): сообщение в Kafka (его пошлёт только активный экземпляр).
 #[allow(clippy::too_many_arguments)]
 fn publish_alarm(
     app: &App,

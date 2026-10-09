@@ -9,18 +9,28 @@ use std::io::Read;
 
 use flate2::read::ZlibDecoder;
 
+/// Приветствие, которое прошивка присылает после подключения.
 pub const BANNER: &[u8] = b"PAC accept";
+/// Первый байт каждого кадра (`'s'`).
 pub const NET_ID: u8 = b's';
+/// Идентификатор службы в запросе.
 pub const SERVICE_ID: u8 = 1;
+/// Одиночный кадр.
 pub const FRAME_SINGLE: u8 = 1;
+/// Статус ответа «ошибка».
 pub const STATUS_ERROR: u8 = 7;
+/// Длина заголовка запроса, байт.
 pub const REQUEST_HEADER_LEN: usize = 6;
+/// Длина заголовка ответа, байт.
 pub const RESPONSE_HEADER_LEN: usize = 5;
 /// В теле ответов devices/states первые 2 байта — devices_request_id.
 pub const LUA_START_OFFSET: usize = 2;
 
+/// Команда: версия протокола и имя PAC.
 pub const CMD_GET_INFO_ON_CONNECT: u8 = 10;
+/// Команда: снимок состояния приборов.
 pub const CMD_GET_DEVICES_STATES: u8 = 101;
+/// Команда: выполнить команду прибора.
 pub const CMD_EXEC_DEVICE_COMMAND: u8 = 102;
 
 /// Кадр запроса: заголовок + `cmd` + доп. данные.
@@ -62,6 +72,7 @@ pub fn lua_text(body: &[u8]) -> String {
     String::from_utf8_lossy(&body[..end]).into_owned()
 }
 
+/// zlib-сжатие для тестов (фейковая прошивка).
 #[cfg(test)]
 pub fn deflate(data: &[u8]) -> Vec<u8> {
     use std::io::Write;

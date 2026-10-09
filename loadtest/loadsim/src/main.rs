@@ -18,15 +18,23 @@ use opcua::server::node_manager::memory::{SimpleNodeManager, simple_node_manager
 use opcua::server::{ServerBuilder, ServerHandle};
 use opcua::types::{DataValue, MessageSecurityMode, NodeId, Variant};
 
+/// Параметры запуска из командной строки: `--servers`, `--tags`, `--base-port`, `--fraction`, `--period-ms`, `--poll-ms`.
 struct Args {
+    /// Сколько OPC UA-серверов поднять (по одному на порт).
     servers: usize,
+    /// Сколько узлов в каждом сервере.
     tags: usize,
+    /// Порт первого сервера; остальные — следом.
     base_port: u16,
+    /// Доля узлов, меняющихся каждый период.
     fraction: f64,
+    /// Период изменения значений, мс.
     period_ms: u64,
+    /// `pollingRate` в сгенерированной конфигурации шлюза, мс.
     poll_ms: u64,
 }
 
+/// Команда (`run` по умолчанию или `config`) и параметры; неверный флаг — паника с его именем (служебный инструмент).
 fn args() -> (String, Args) {
     let mut it = std::env::args().skip(1);
     let cmd = it.next().unwrap_or_else(|| "run".into());
@@ -46,10 +54,12 @@ fn args() -> (String, Args) {
     (cmd, a)
 }
 
+/// Тип узла по номеру: каждый третий целый, остальные вещественные.
 fn is_float(j: usize) -> bool {
-    j % 3 != 0
+    !j.is_multiple_of(3)
 }
 
+/// Печатает `controllers.yaml` для шлюза: N контроллеров по M тегов (`loadsim config`).
 fn config(a: &Args) {
     println!("opcua:\n  servers:");
     for i in 0..a.servers {
@@ -110,6 +120,7 @@ async fn start_server(i: usize, a: &Args) -> anyhow::Result<(ServerHandle, Arc<S
     Ok((handle, manager, ids))
 }
 
+/// Запуск источника нагрузки: N OPC UA-серверов по M узлов, доля узлов меняется каждый период.
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let (cmd, a) = args();

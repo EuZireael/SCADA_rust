@@ -13,19 +13,30 @@ use flate2::read::ZlibDecoder;
 #[cfg(test)]
 use flate2::{Compression, write::ZlibEncoder};
 
+/// Версия протокола driver-master, с которой сверена реализация (при другой — предупреждение, работа продолжается).
 pub const PROTOCOL_VERSION: i64 = 104;
+/// Приветствие, которое PAC присылает сразу после подключения.
 pub const BANNER: &[u8] = b"PAC accept";
+/// Первый байт каждого кадра (`'s'`).
 pub const NET_ID: u8 = b's';
+/// Идентификатор службы в запросе.
 pub const SERVICE_ID: u8 = 1;
+/// Признак одиночного кадра: запрос не разбит на части.
 pub const FRAME_SINGLE: u8 = 1;
+/// Статус ответа «ошибка» (успех ptusa помечает статусом 12; драйвер смотрит только на ошибку).
 pub const STATUS_ERROR: u8 = 7;
+/// Длина заголовка запроса, байт.
 pub const REQUEST_HEADER_LEN: usize = 6;
+/// Длина заголовка ответа, байт.
 pub const RESPONSE_HEADER_LEN: usize = 5;
 /// В теле ответов devices/states первые 2 байта — devices_request_id.
 pub const LUA_START_OFFSET: usize = 2;
 
+/// Команда: версия протокола и имя PAC (handshake).
 pub const CMD_GET_INFO_ON_CONNECT: u8 = 10;
+/// Команда: снимок состояния всех приборов (Lua-таблица `t`).
 pub const CMD_GET_DEVICES_STATES: u8 = 101;
+/// Команда: выполнить команду прибора (`set_cmd`).
 pub const CMD_EXEC_DEVICE_COMMAND: u8 = 102;
 
 /// Кадр запроса: заголовок + `cmd` + доп. данные.

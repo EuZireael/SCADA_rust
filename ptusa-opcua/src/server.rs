@@ -22,14 +22,19 @@ use crate::channel::{Channel, Converted, Kind, command_text, convert};
 use crate::pac::PacClient;
 use crate::snapshot::Snapshot;
 
+/// Пространство имён узлов станции; обязано получить индекс 2 (адреса узлов в базе каналов — `ns=2;s=…`).
 pub const NAMESPACE_URI: &str = "urn:savushkin:ptusa";
-/// Потолок ожидания ответа прошивки на команду записи.
+/// Как часто писать в журнал сводку (снимки, команды, каналы без значения).
 const REPORT_EVERY: Duration = Duration::from_secs(60);
 
+/// Счётчики работы фасада для сводки в журнале.
 #[derive(Default)]
 pub struct Stats {
+    /// Снимков прошивки получено.
     pub polls: AtomicU64,
+    /// Команд записи принято от клиентов.
     pub commands: AtomicU64,
+    /// Из них отклонено прошивкой.
     pub rejected: AtomicU64,
 }
 
@@ -41,6 +46,7 @@ pub struct Pusher {
 }
 
 impl Pusher {
+    /// NodeId канала: `ns=2;s=<прибор>.<поле>`.
     fn node(&self, ch: &Channel) -> NodeId {
         NodeId::new(self.ns, ch.node_name.clone())
     }
@@ -87,6 +93,7 @@ fn bad_value(status: StatusCode, ts: DateTime) -> DataValue {
     }
 }
 
+/// Значение канала → вариант узла OPC UA (тип совпадает с типом канала: сервер проверяет его строго).
 fn variant(v: &Converted) -> Variant {
     match v {
         Converted::Int(i) => Variant::Int32(*i),
@@ -96,6 +103,7 @@ fn variant(v: &Converted) -> Variant {
     }
 }
 
+/// Значение узла до первого снимка (оно помечается статусом «ждём данные»).
 fn initial(kind: Kind) -> Variant {
     match kind {
         Kind::Int32 => Variant::Int32(0),
@@ -105,6 +113,7 @@ fn initial(kind: Kind) -> Variant {
     }
 }
 
+/// Тип данных узла по типу канала.
 fn data_type_id(kind: Kind) -> DataTypeId {
     match kind {
         Kind::Int32 => DataTypeId::Int32,
@@ -293,6 +302,7 @@ impl Bridge {
         Ok(missing)
     }
 
+    /// Цикл фасада: снимок прошивки → узлы с заданным периодом; обрыв — все узлы `BadCommunicationError` и повтор с паузой 1 → 10 с.
     pub async fn run(self) {
         let (mut backoff, mut last_report) = (Duration::from_secs(1), Instant::now() - REPORT_EVERY);
         loop {

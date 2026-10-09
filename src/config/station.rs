@@ -3,13 +3,17 @@
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
+/// Корень `controllers.yaml`.
 #[derive(Debug, Deserialize)]
 pub struct ControllersFile {
+    /// Секция `opcua` — название осталось от Java-шлюза; в ней контроллеры любого протокола.
     pub opcua: ControllersSection,
 }
 
+/// Секция `opcua`.
 #[derive(Debug, Deserialize)]
 pub struct ControllersSection {
+    /// Контроллеры станции.
     #[serde(default)]
     pub servers: Vec<ServerConfig>,
 }
@@ -18,17 +22,23 @@ pub struct ControllersSection {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerConfig {
+    /// Идентификатор из YAML; не используется, разбирается для совместимости формата.
     #[allow(dead_code)] // id разбирается для совместимости формата с Java-шлюзом
     pub id: Option<String>,
+    /// Уникальное имя контроллера; по нему он связывается с таблицей `controllers`.
     pub name: String,
+    /// Адрес со схемой: `opc.tcp://…`, `modbus://…`, `pac://…` — по ней выбирается протокол.
     pub endpoint: String,
     /// Политика и режим канала OPC UA: `None` (по умолчанию), `Basic256Sha256`, `Aes256_Sha256_RsaPss_Sign`…
     pub security: Option<String>,
     /// Пользователь OPC UA (вместе с `password`; пароль удобно держать в `${PLC_PASSWORD}`).
     pub username: Option<String>,
+    /// Пароль пользователя OPC UA; в файл лучше писать `${ПЕРЕМЕННАЯ}`.
     pub password: Option<String>,
+    /// Включён ли контроллер; по умолчанию `false` — выключенный не опрашивается и не проверяется.
     #[serde(default)]
     pub enabled: bool,
+    /// Теги контроллера.
     #[serde(default)]
     pub tags: Vec<TagConfig>,
 }
@@ -61,25 +71,42 @@ impl ServerConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TagConfig {
+    /// Полный путь канала: ключ сообщения Kafka и адрес команды монитора; уникален на всю станцию.
     pub name: String,
+    /// Адрес в контроллере (OPC UA `ns=2;s=6`; у PAC и Modbus — уникальный ключ); уникален в пределах контроллера.
     pub node_id: String,
+    /// Номер канала в базе монитора.
     pub channel_id: Option<i64>,
+    /// Прибор PAC; у других протоколов — метаданные.
     pub device_name: Option<String>,
+    /// Поле прибора PAC (`ST`, `RT_PAR_F[12]`); допустимы буквы, цифры, `_`, `[`, `]`, `.`.
     pub field_name: Option<String>,
+    /// Тип прибора (метаданные).
     pub device_type: Option<String>,
+    /// `opcua` (по умолчанию), `modbus` или `pac`; должен совпасть с протоколом контроллера.
     pub protocol: Option<String>,
+    /// Тип данных: `BOOL…`, `INT…`, `FLOAT…`/`REAL…`/`DOUBLE…`, `STRING…`.
     pub data_type: String,
+    /// Желаемый период опроса, мс; период цикла контроллера — наименьший положительный из его тегов.
     #[serde(default)]
     pub polling_rate: u64,
+    /// Включён ли тег; по умолчанию `false`.
     #[serde(default)]
     pub enabled: bool,
+    /// Можно ли писать командой; Modbus не пишется никогда.
     #[serde(default)]
     pub writable: bool,
+    /// Единица измерения.
     pub unit: Option<String>,
+    /// Нижний предел для аларма.
     pub min_value: Option<f64>,
+    /// Верхний предел для аларма.
     pub max_value: Option<f64>,
+    /// Адрес holding-регистра 4xxxx (40001…105536); обязателен у Modbus-тега.
     pub modbus_address: Option<i32>,
+    /// Тип регистра (справочно).
     pub modbus_type: Option<String>,
+    /// Modbus Unit ID (по умолчанию 1); один на контроллер.
     pub modbus_unit_id: Option<u8>,
     /// Переопределение фильтра истории для тега; не заданные поля — умолчания `gateway.history.*`.
     pub history: Option<HistoryConfig>,
@@ -89,9 +116,13 @@ pub struct TagConfig {
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryConfig {
+    /// Абсолютная зона истории тега; не задано — `GATEWAY_HISTORY_DEADBAND`.
     pub deadband: Option<f64>,
+    /// Относительная зона истории тега, %.
     pub deadband_percent: Option<f64>,
+    /// Минимальный интервал между точками истории тега, мс.
     pub min_interval_ms: Option<u64>,
+    /// «Пульс» истории тега, мс: точка раз в столько, даже если значение стоит; 0 — выключен.
     pub max_interval_ms: Option<u64>,
 }
 
@@ -103,6 +134,7 @@ pub fn load_controllers(path: &std::path::Path) -> Result<Vec<ServerConfig>> {
     parse_controllers(&expanded)
 }
 
+/// Разобрать YAML и проверить станцию целиком ([`validate_station`] и проверки каждого включённого контроллера). Подстановки `${…}` к этому моменту уже выполнены.
 pub fn parse_controllers(yaml: &str) -> Result<Vec<ServerConfig>> {
     let file: ControllersFile = serde_yaml_ng::from_str(yaml).context("controllers.yaml не разобран")?;
     for server in file.opcua.servers.iter().filter(|s| s.enabled) {

@@ -15,11 +15,13 @@ use tokio::time::timeout;
 
 use crate::protocol::*;
 
+/// Открытое соединение с прошивкой: сокет и номер пакета запроса.
 struct Conn {
     stream: TcpStream,
     pidx: u8,
 }
 
+/// Клиент driver-master прошивки ptusa: одно соединение, операции под мьютексом.
 pub struct PacClient {
     pub host: String,
     pub port: u16,
@@ -29,10 +31,12 @@ pub struct PacClient {
 }
 
 impl PacClient {
+    /// Клиент без соединения.
     pub fn new(host: &str, port: u16, op_timeout: Duration) -> Self {
         PacClient { host: host.into(), port, op_timeout, conn: Mutex::new(None), connected: AtomicBool::new(false) }
     }
 
+    /// Есть ли соединение (читается без блокировки).
     pub fn connected(&self) -> bool {
         self.connected.load(Ordering::Acquire)
     }
@@ -57,6 +61,7 @@ impl PacClient {
         Ok(())
     }
 
+    /// Закрыть соединение; следующий вызов переподключится.
     pub async fn close(&self) {
         self.connected.store(false, Ordering::Release);
         *self.conn.lock().await = None;
@@ -79,6 +84,7 @@ impl PacClient {
         Ok(exec_result_code(&body))
     }
 
+    /// Один запрос: кадр, ответ, проверка статуса и номера пакета, распаковка zlib.
     async fn request(&self, conn: &mut Conn, cmd: u8, extra: &[u8]) -> Result<Vec<u8>> {
         conn.pidx = conn.pidx.wrapping_add(1);
         let frame = build_request(conn.pidx, cmd, extra);

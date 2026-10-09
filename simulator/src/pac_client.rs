@@ -10,9 +10,12 @@ use tokio::net::TcpStream;
 
 use crate::pac::{BANNER, CMD_EXEC_DEVICE_COMMAND, CMD_GET_DEVICES, CMD_GET_DEVICES_STATES, CMD_GET_INFO_ON_CONNECT};
 
+/// Первый байт каждого кадра.
 const NET_ID: u8 = b's';
+/// Статус ответа «ошибка».
 const STATUS_ERROR: u8 = 7;
 
+/// Клиент driver-master для проверки PAC (`conformance`, `probe-pac`).
 pub struct PacClient {
     stream: TcpStream,
     pidx: u8,
@@ -65,10 +68,12 @@ impl PacClient {
         Ok(String::from_utf8_lossy(&text[..end]).into_owned())
     }
 
+    /// Объектная модель: список приборов (Lua-текст).
     pub async fn devices_lua(&mut self) -> Result<String> {
         self.lua(CMD_GET_DEVICES).await
     }
 
+    /// Снимок состояния приборов (Lua-текст).
     pub async fn states_lua(&mut self) -> Result<String> {
         self.lua(CMD_GET_DEVICES_STATES).await
     }

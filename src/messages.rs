@@ -12,6 +12,7 @@ pub struct TelemetryMessage<'a> {
     /// Типизированное значение; `null` — кадр потери связи (quality=BAD). Ссылка: сообщение живёт
     /// до сериализации, копировать значение (строки) на каждую публикацию незачем.
     pub value: Option<&'a TagValue>,
+    /// Достоверность: `GOOD` или `BAD` (при `BAD` значение обычно `null`).
     pub quality: Quality,
     /// Момент снятия значения (sourceTimestamp OPC UA, момент чтения Modbus/PAC).
     pub timestamp: Timestamp,
@@ -45,14 +46,22 @@ impl TelemetryMessage<'_> {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EventMessage {
+    /// Уникальный идентификатор сообщения (UUID): по нему потребитель отбрасывает дубли.
     pub message_id: String,
+    /// Константа `"EVENT"` — тип сообщения для потребителя.
     #[serde(rename = "type")]
     pub kind: &'static str,
+    /// Тип события: `CONNECTION`, `COMMAND`, `HEARTBEAT`, `HA`, `SCRIPT`, `SYSTEM`, `ALARM`…
     pub event_type: String,
+    /// Источник: `Gateway`, `CommandConsumer`, `HotStandby`, `Scripts`.
     pub source: String,
+    /// Важность: `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
     pub severity: String,
+    /// Текст для оператора.
     pub message: String,
+    /// Момент события.
     pub timestamp: Timestamp,
+    /// Подробности в свободной форме (JSON-объект); для пары резервирования дополнены `instance` и `role`.
     pub details: Value,
 }
 
@@ -60,20 +69,34 @@ pub struct EventMessage {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AlarmMessage {
+    /// Уникальный идентификатор сообщения (UUID).
     pub message_id: String,
+    /// Константа `"ALARM"`.
     #[serde(rename = "type")]
     pub kind: &'static str,
+    /// Идентификатор аларма (`ALARM_<id тега>_<условие>_<мс>`); снятие несёт тот же, что и возникновение.
     pub alarm_id: String,
+    /// Номер тега в БД шлюза (`null` без БД).
     pub tag_id: Option<i64>,
+    /// Имя тега (ключ сообщения).
     pub tag_name: String,
+    /// Важность: `MINOR`, `MAJOR`, `CRITICAL` — зависит от глубины выхода за предел.
     pub severity: String,
+    /// Текст для оператора («High value: 105.00 > 100.00 °C»).
     pub message: String,
+    /// Нарушенный предел (`minValue` или `maxValue`).
     pub threshold: f64,
+    /// Значение в момент события.
     pub current_value: f64,
+    /// Момент события.
     pub timestamp: Timestamp,
+    /// Квитирован ли аларм (при создании `false`).
     pub acknowledged: bool,
+    /// `true` — снятие аларма (значение вернулось в норму с гистерезисом 2 % диапазона).
     pub cleared: bool,
+    /// Номер контроллера в БД.
     pub controller_id: Option<i64>,
+    /// Имя контроллера.
     pub controller_name: Option<String>,
 }
 
@@ -82,13 +105,18 @@ pub struct AlarmMessage {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandMessage {
+    /// Идентификатор команды от монитора: по нему шлюз отбрасывает повтор.
     pub command_id: Option<String>,
+    /// Номер тега в БД (для старого монитора); основной способ адресации — `tagName`.
     pub tag_id: Option<i64>,
+    /// Имя тега (совпадает с `name` в `controllers.yaml`).
     pub tag_name: Option<String>,
     /// Подсказка типа. Монитор её не шлёт: тип берётся из конфигурации тега.
     pub data_type: Option<String>,
+    /// Новое значение: число, bool или строка; приводится к типу тега.
     #[serde(default)]
     pub value: Value,
+    /// Кто отправил команду (оператор), для журнала.
     pub requested_by: Option<String>,
     /// Момент отправки команды (ISO-8601 или epoch-секунды) — для возраста, если у записи Kafka нет метки.
     pub timestamp: Option<Value>,
@@ -115,13 +143,21 @@ pub fn command_age_ms(cmd: &CommandMessage, record_timestamp_ms: Option<i64>, no
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandResultMessage {
+    /// Идентификатор команды из запроса.
     pub command_id: Option<String>,
+    /// Номер тега из запроса.
     pub tag_id: Option<i64>,
+    /// Имя тега из запроса.
     pub tag_name: Option<String>,
+    /// Исход: `APPLIED`, `REJECTED_*` или `FAILED_*` (полный перечень — `docs/OPERATIONS.md`).
     pub status: &'static str,
+    /// `true` только при `APPLIED`.
     pub success: bool,
+    /// Пояснение для оператора (причина отказа, что записано).
     pub message: String,
+    /// Значение, которое увидел оператор: своё, если скрипт канала пересчитал значение для ПЛК.
     pub applied_value: Option<TagValue>,
+    /// Момент результата.
     pub timestamp: Timestamp,
 }
 

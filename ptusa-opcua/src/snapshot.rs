@@ -25,16 +25,19 @@ pub enum Raw {
     Text(String),
 }
 
+/// Lua-стейт снимка прошивки в песочнице: `load` исполняет текст ответа, из таблицы `t` читаются значения каналов.
 pub struct Snapshot {
     lua: Lua,
     budget: Duration,
 }
 
 impl Snapshot {
+    /// Стейт с потолками памяти и времени по умолчанию.
     pub fn new() -> Result<Self> {
         Self::with_limits(MEMORY_LIMIT, TIME_BUDGET)
     }
 
+    /// Стейт с заданными потолками памяти и времени (для тестов).
     pub fn with_limits(memory: usize, budget: Duration) -> Result<Self> {
         Ok(Snapshot { lua: sandbox::new_lua(memory)?, budget })
     }

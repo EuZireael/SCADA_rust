@@ -14,19 +14,27 @@ use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{Result, bail, ensure};
 
+/// Значение разобранной Lua-таблицы снимка PAC.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Lua {
+    /// Число.
     Num(f64),
+    /// Строка.
     Str(String),
+    /// Таблица: ключи — индексы или имена.
     Table(BTreeMap<Key, Lua>),
 }
 
+/// Ключ таблицы.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Key {
+    /// Номер элемента (с единицы, как в Lua).
     Index(i64),
+    /// Имя поля.
     Name(String),
 }
 
+/// Лексема разбора Lua-текста снимка.
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {
     Num(f64),
@@ -37,6 +45,7 @@ enum Tok {
     Punct(char),
 }
 
+/// Разбить текст снимка на лексемы.
 fn tokens(s: &str) -> Result<Vec<Tok>> {
     let chars: Vec<char> = s.chars().collect();
     let (mut i, mut out) = (0, Vec::new());
@@ -95,6 +104,7 @@ fn tokens(s: &str) -> Result<Vec<Tok>> {
     Ok(out)
 }
 
+/// Разобрать таблицу `{ … }` с позиции `i`; вернуть её и позицию за ней.
 fn table(toks: &[Tok], mut i: usize) -> Result<(Lua, usize)> {
     ensure!(toks.get(i) == Some(&Tok::Punct('{')), "lua: ожидалась {{");
     i += 1;
@@ -144,6 +154,7 @@ fn table(toks: &[Tok], mut i: usize) -> Result<(Lua, usize)> {
 /// Снимок: имя прибора → его таблица.
 pub type Snapshot = HashMap<String, BTreeMap<Key, Lua>>;
 
+/// Разобрать снимок GET_DEVICES_STATES (`t = {…}`, `t.OBJECT1 = {…}`) в дерево.
 pub fn parse_snapshot(text: &str) -> Result<Snapshot> {
     let toks = tokens(text)?;
     let (mut i, mut out) = (0, Snapshot::new());

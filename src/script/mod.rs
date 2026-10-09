@@ -51,9 +51,11 @@ use crate::model::{Quality, Tag, TagValue, Timestamp};
 #[cfg(test)]
 use crate::sandbox;
 
+/// Имя файла привязок в папке скриптов.
 const BINDINGS_FILE: &str = "scripts.yaml";
 /// Потолок памяти стейта одного скрипта.
 const MEMORY_LIMIT: usize = 32 * 1024 * 1024;
+/// Как часто ошибку одного скрипта пишут в журнал и события (остальные только считаются).
 const ERROR_LOG_INTERVAL: Duration = Duration::from_secs(60);
 
 mod bound;
@@ -67,12 +69,16 @@ pub use glob::TagGlob;
 
 /// Загруженный набор: привязки и готовые цепочки по имени канала.
 pub struct Loaded {
+    /// Все включённые привязки в порядке файла.
     scripts: Vec<Arc<BoundScript>>,
+    /// Цепочка скриптов по имени канала; собирается при загрузке.
     by_tag: HashMap<String, Vec<Arc<BoundScript>>>,
+    /// Отпечаток папки: по его смене понимаем, что файлы изменились.
     fingerprint: String,
 }
 
 impl Loaded {
+    /// Пустой набор: скриптов нет.
     fn empty() -> Self {
         Loaded { scripts: Vec::new(), by_tag: HashMap::new(), fingerprint: String::new() }
     }
@@ -82,47 +88,67 @@ impl Loaded {
         self.by_tag.is_empty()
     }
 
+    /// Цепочка скриптов канала в порядке привязок; `None` — скриптов нет.
     pub fn chain(&self, tag_name: &str) -> Option<&[Arc<BoundScript>]> {
         self.by_tag.get(tag_name).map(Vec::as_slice)
     }
 }
 
+/// Статистика ошибок одного скрипта: для `GET /api/scripts` и ограничения частоты журнала.
 #[derive(Default)]
 struct Stats {
+    /// Сколько ошибок всего.
     errors: AtomicU64,
+    /// Последняя ошибка: «канал: текст» и время.
     last: Mutex<Option<(String, DateTime<Utc>)>>,
+    /// Когда ошибка последний раз попала в журнал.
     logged_at: Mutex<Option<Instant>>,
 }
 
 /// Управляющий скриптами: загрузка, горячая перезагрузка, обработка значений и команд.
 pub struct Scripts {
+    /// Папка, лимит времени и период проверки.
     settings: ScriptSettings,
+    /// Имена всех тегов станции: по ним маски привязываются к каналам при загрузке.
     tag_names: Vec<String>,
+    /// Текущая версия; при перезагрузке подменяется целиком.
     current: RwLock<Arc<Loaded>>,
+    /// Статистика ошибок по имени скрипта.
     stats: Mutex<HashMap<String, Arc<Stats>>>,
+    /// Последняя неудачная перезагрузка (видна в REST).
     last_reload_error: Mutex<Option<String>>,
+    /// Метрика ошибок скриптов.
     errors_metric: Option<IntCounterVec>,
+    /// Метрика «каналов со скриптами».
     bound_gauge: Option<IntGauge>,
+    /// Куда писать события `SCRIPT`.
     events: Option<EventSink>,
 }
 
+/// Файл привязок `scripts.yaml`.
 #[derive(Deserialize)]
 struct BindingsFile {
     #[serde(default)]
     scripts: Vec<Binding>,
 }
 
+/// Одна привязка: скрипт, маски тегов и параметры.
 #[derive(Deserialize)]
 struct Binding {
+    /// Имя `.lua`-файла в папке скриптов.
     script: Option<String>,
+    /// Маски имён тегов (`*` — любые символы, `?` — один).
     #[serde(default)]
     tags: Vec<String>,
+    /// Параметры; скрипту доступны как `ctx.params`.
     #[serde(default)]
     params: serde_yaml_ng::Value,
+    /// `false` — привязка временно выключена (по умолчанию включена).
     #[serde(default = "yes")]
     enabled: bool,
 }
 
+/// Умолчание `enabled: true` для serde.
 fn yes() -> bool {
     true
 }
@@ -171,10 +197,12 @@ impl Scripts {
         Ok(scripts)
     }
 
+    /// Текущая загруженная версия: клон `Arc`, горячий путь не ждёт перезагрузки.
     pub fn snapshot(&self) -> Arc<Loaded> {
         self.current.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
+    /// Подменить загруженную версию и обновить метрику числа каналов со скриптами.
     fn install(&self, loaded: Loaded) {
         if let Some(g) = &self.bound_gauge {
             g.set(loaded.by_tag.len() as i64);
@@ -225,6 +253,7 @@ impl Scripts {
         self.snapshot().chain(tag_name).is_some()
     }
 
+    /// Статистика ошибок скрипта; создаётся при первом обращении.
     fn stats_of(&self, file: &str) -> Arc<Stats> {
         self.stats
             .lock()
@@ -234,6 +263,7 @@ impl Scripts {
             .clone()
     }
 
+    /// Учесть ошибку скрипта: счётчик, последняя ошибка, метрика; в журнал и события — не чаще раза в минуту.
     fn on_error(&self, script: &BoundScript, tag: &Tag, message: &str) {
         let stats = self.stats_of(&script.file);
         let total = stats.errors.fetch_add(1, Ordering::Relaxed) + 1;
@@ -257,6 +287,7 @@ impl Scripts {
 
     // ---------------------------------------------------------------------- загрузка --
 
+    /// Загрузить папку целиком: привязки, файлы, маски → теги. Любая ошибка — `Err`, прежняя версия остаётся в работе.
     fn read_dir(&self) -> Result<Loaded> {
         let bindings_path = self.settings.dir.join(BINDINGS_FILE);
         let fingerprint = self.fingerprint();

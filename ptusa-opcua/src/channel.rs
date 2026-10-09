@@ -31,8 +31,10 @@ impl Kind {
     }
 }
 
+/// Канал станции: прибор, поле прибора и имя узла OPC UA.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Channel {
+    /// Прибор (`LINE1V0`).
     pub device: String,
     /// Поле как в базе каналов (`RT_PAR_F[12]`, `PAR_MAIN[1].P_CZAD_S`).
     pub field: String,
@@ -46,23 +48,27 @@ pub struct Channel {
     pub node_name: String,
 }
 
+/// Корень конфигурации станции (`opcua:`).
 #[derive(Deserialize)]
 struct Root {
     opcua: OpcUa,
 }
 
+/// Секция `opcua`.
 #[derive(Deserialize)]
 struct OpcUa {
     #[serde(default)]
     servers: Vec<Server>,
 }
 
+/// Контроллер станции.
 #[derive(Deserialize)]
 struct Server {
     #[serde(default)]
     tags: Vec<Tag>,
 }
 
+/// Тег станции: нужны только прибор, поле, тип и права.
 #[derive(Deserialize)]
 struct Tag {
     #[serde(default, rename = "deviceName")]

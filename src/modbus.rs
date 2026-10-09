@@ -44,7 +44,9 @@ pub fn endpoint(endpoint: &str) -> (String, u16) {
 pub struct Block {
     /// 0-based адрес первого регистра.
     pub start: u16,
+    /// Сколько регистров читать.
     pub count: u16,
+    /// Теги блока (отсортированы по адресу).
     pub tags: Vec<Arc<Tag>>,
 }
 
@@ -69,10 +71,12 @@ impl Block {
     }
 }
 
+/// Адрес первого регистра тега в протоколе (с нуля).
 fn reg0(tag: &Tag) -> i32 {
     tag.modbus_address.unwrap_or(ADDRESS_BASE) - ADDRESS_BASE
 }
 
+/// Сколько регистров занимает значение: вещественное — два, остальное — один.
 fn width(tag: &Tag) -> i32 {
     if model::is_float(&tag.data_type) { 2 } else { 1 }
 }
@@ -119,10 +123,12 @@ pub struct ModbusClient {
 }
 
 impl ModbusClient {
+    /// Клиент без соединения; оно создаётся при первом чтении.
     pub fn new(host: String, port: u16, unit_id: u8, op_timeout: Duration) -> Self {
         ModbusClient { host, port, unit_id, op_timeout, ctx: None }
     }
 
+    /// Соединение с контроллером: создаётся лениво при первом чтении, с таймаутом подключения.
     async fn context(&mut self) -> Result<&mut Context> {
         if self.ctx.is_none() {
             let stream = timeout(self.op_timeout, TcpStream::connect((self.host.as_str(), self.port)))
@@ -150,6 +156,7 @@ impl ModbusClient {
         result
     }
 
+    /// Чтение плана блок за блоком; блок с исключением «нет такого адреса» делится пополам прямо в плане.
     async fn read_inner(&mut self, plan: &mut Vec<Block>) -> Result<Vec<(Arc<Tag>, Option<TagValue>)>> {
         let op_timeout = self.op_timeout;
         let endpoint = format!("{}:{}", self.host, self.port);

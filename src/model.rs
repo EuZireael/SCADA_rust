@@ -10,16 +10,22 @@ use crate::config::{HistoryConfig, ServerConfig, TagConfig};
 /// Протокол, по которому тег читается и пишется.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Protocol {
+    /// OPC UA: узлы по `nodeId`, чтение пачками, запись `Write`.
     OpcUa,
+    /// Modbus TCP: holding-регистры (FC03), только чтение.
     Modbus,
+    /// PAC driver-master (ptusa): значения из Lua-снимка, запись `set_cmd`.
     Pac,
 }
 
 /// Тип контроллера — по схеме endpoint (`opc.tcp://`, `modbus://`, `pac://`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControllerKind {
+    /// Контроллер с адресом `opc.tcp://…`.
     OpcUa,
+    /// Контроллер с адресом `modbus://…`.
     Modbus,
+    /// Контроллер с адресом `pac://…`.
     Pac,
 }
 
@@ -58,28 +64,46 @@ pub struct Tag {
     pub slot: usize,
     /// Полный путь канала = Kafka-key телеметрии = адрес команды монитора.
     pub name: String,
+    /// Адрес в контроллере: OPC UA — `ns=2;s=6`; PAC и Modbus — любой уникальный ключ. Уникален в пределах контроллера: по нему тег связывается со строкой БД.
     pub node_id: String,
+    /// Номер канала в базе монитора (справочно, пишется в БД).
     pub channel_id: Option<i64>,
+    /// Прибор PAC (`LINE1V0`); у остальных протоколов — метаданные для монитора и скриптов.
     pub device_name: Option<String>,
+    /// Поле прибора PAC (`ST`, `RT_PAR_F[12]`); у остальных протоколов — метаданные.
     pub field_name: Option<String>,
+    /// Тип прибора (`V` — клапан, `M` — мотор…); метаданные.
     pub device_type: Option<String>,
+    /// Протокол чтения и записи, выведенный из `protocol`, `nodeId` и `modbusAddress` (см. [`classify`]).
     pub protocol: Protocol,
+    /// Значение `protocol` из YAML как написано (пишется в БД).
     pub protocol_raw: String,
+    /// Тип данных как в YAML; по префиксу определяет приведение значения команды и декодирование Modbus (см. [`is_int`] и соседей).
     pub data_type: String,
+    /// Желаемый период опроса, мс; 0 — не задан. Период цикла контроллера — минимум по его тегам.
     pub polling_rate_ms: u64,
+    /// Включён ли тег; выключенные теги в [`Controller::tags`] не попадают.
     pub enabled: bool,
+    /// Можно ли писать команды. Modbus не пишется никогда, что бы ни стояло здесь.
     pub writable: bool,
+    /// Единица измерения (справочно, в событиях алармов).
     pub unit: Option<String>,
+    /// Нижний предел для аларма (`GATEWAY_ALARMS_ENABLED`).
     pub min_value: Option<f64>,
+    /// Верхний предел для аларма.
     pub max_value: Option<f64>,
+    /// Адрес holding-регистра в нотации 4xxxx (40001…); только Modbus.
     pub modbus_address: Option<i32>,
+    /// Тип регистра из YAML (справочно, пишется в БД; декодирование идёт по `data_type`).
     pub modbus_type: Option<String>,
+    /// Modbus Unit ID; по умолчанию 1.
     pub modbus_unit_id: u8,
     /// Переопределение фильтра истории (`history:` в controllers.yaml); пусто — умолчания.
     pub history: HistoryConfig,
 }
 
 impl Tag {
+    /// Тег из записи YAML. `id` и `slot` проставляются позже: `id` — после синхронизации с БД, `slot` — при сборке контроллера.
     pub fn from_config(cfg: &TagConfig) -> Self {
         let protocol_raw = cfg.protocol.clone().unwrap_or_else(|| "opcua".into());
         Tag {
@@ -124,21 +148,30 @@ pub fn classify(protocol: &str, node_id: &str, modbus_address: Option<i32>) -> P
 /// Политика безопасности канала OPC UA (`security:` в controllers.yaml).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OpcPolicy {
+    /// Без защиты (по умолчанию).
     #[default]
     None,
+    /// Basic128Rsa15 (устаревшая; для старых ПЛК).
     Basic128Rsa15,
+    /// Basic256 (устаревшая).
     Basic256,
+    /// Basic256Sha256 — минимально рекомендуемая.
     Basic256Sha256,
+    /// Aes128_Sha256_RsaOaep.
     Aes128Sha256RsaOaep,
+    /// Aes256_Sha256_RsaPss.
     Aes256Sha256RsaPss,
 }
 
 /// Режим защиты сообщений OPC UA.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OpcMode {
+    /// Без подписи и шифрования (только вместе с политикой None).
     #[default]
     None,
+    /// Сообщения подписываются.
     Sign,
+    /// Сообщения подписываются и шифруются (по умолчанию для защищённых политик).
     SignAndEncrypt,
 }
 
@@ -146,9 +179,13 @@ pub enum OpcMode {
 /// Пароль не печатается ни в `Debug`, ни в журнале.
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct OpcSecurity {
+    /// Политика безопасности канала.
     pub policy: OpcPolicy,
+    /// Режим защиты сообщений.
     pub mode: OpcMode,
+    /// Логин пользователя; задаётся вместе с паролем.
     pub username: Option<String>,
+    /// Пароль пользователя. В `Debug` и журнал не попадает.
     pub password: Option<String>,
 }
 
@@ -216,9 +253,13 @@ impl OpcSecurity {
 pub struct Controller {
     /// PK контроллера в БД шлюза (0 — работа без БД).
     pub id: i64,
+    /// Уникальное имя контроллера (ключ строки в таблице `controllers`).
     pub name: String,
+    /// Адрес со схемой (`opc.tcp://`, `modbus://`, `pac://`).
     pub endpoint: String,
+    /// Протокол контроллера, выведенный из схемы адреса.
     pub kind: ControllerKind,
+    /// Включён ли контроллер.
     pub enabled: bool,
     /// Только включённые теги.
     pub tags: Vec<Arc<Tag>>,
@@ -227,6 +268,7 @@ pub struct Controller {
 }
 
 impl Controller {
+    /// Контроллер из записи YAML; `None`, если схема адреса неизвестна. Берутся только включённые теги, каждому присваивается слот.
     pub fn from_config(cfg: &ServerConfig) -> Option<Self> {
         Some(Controller {
             id: 0,
@@ -259,18 +301,22 @@ fn has_prefix(data_type: &str, prefix: &str) -> bool {
     data_type.trim().to_ascii_uppercase().starts_with(prefix)
 }
 
+/// Логический ли тип (`BOOL…`).
 pub fn is_bool(data_type: &str) -> bool {
     has_prefix(data_type, "BOOL")
 }
 
+/// Целый ли тип (`INT…`: INT16, INT32, INTEGER).
 pub fn is_int(data_type: &str) -> bool {
     has_prefix(data_type, "INT")
 }
 
+/// Вещественный ли тип (`FLOAT…`, `REAL…`, `DOUBLE…`).
 pub fn is_float(data_type: &str) -> bool {
     has_prefix(data_type, "FLOAT") || has_prefix(data_type, "REAL") || has_prefix(data_type, "DOUBLE")
 }
 
+/// Строковый ли тип (`STRING…`).
 pub fn is_string(data_type: &str) -> bool {
     has_prefix(data_type, "STRING")
 }
@@ -281,14 +327,20 @@ pub fn is_string(data_type: &str) -> bool {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum TagValue {
+    /// Логическое значение (`true`/`false` на проводе).
     Bool(bool),
+    /// Целое; все целые типы ПЛК приводятся к `i64`.
     Int(i64),
+    /// Вещественное одинарной точности (OPC UA `Float`, Modbus `FLOAT`).
     F32(f32),
+    /// Вещественное двойной точности.
     F64(f64),
+    /// Строка.
     Text(String),
 }
 
 impl TagValue {
+    /// Значение числом: bool — 0/1, строка — `None`.
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             TagValue::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
@@ -299,6 +351,7 @@ impl TagValue {
         }
     }
 
+    /// Число ли это (bool и строка — нет): только числа участвуют в зонах нечувствительности и алармах.
     pub fn is_numeric(&self) -> bool {
         matches!(self, TagValue::Int(_) | TagValue::F32(_) | TagValue::F64(_))
     }
@@ -317,11 +370,14 @@ impl std::fmt::Display for TagValue {
 /// Качество отсчёта.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Quality {
+    /// Значение достоверно.
     Good,
+    /// Значение недостоверно (обрыв, плохой статус узла); на проводе обычно `value = null`.
     Bad,
 }
 
 impl Quality {
+    /// Имя качества на проводе: `GOOD` или `BAD`.
     pub fn as_str(self) -> &'static str {
         match self {
             Quality::Good => "GOOD",
@@ -343,10 +399,12 @@ impl Serialize for Quality {
 pub struct Timestamp(pub DateTime<Utc>);
 
 impl Timestamp {
+    /// Текущий момент.
     pub fn now() -> Self {
         Timestamp(Utc::now())
     }
 
+    /// Метка текстом: `секунды.наносекунды` (девять знаков), как её читает монитор.
     pub fn epoch_seconds_text(&self) -> String {
         let mut out = Vec::with_capacity(32);
         self.write_epoch_seconds(&mut out);
@@ -371,10 +429,13 @@ impl Serialize for Timestamp {
 /// Одно снятое значение тега.
 #[derive(Debug, Clone)]
 pub struct Reading {
+    /// Тег, с которого снято значение.
     pub tag: Arc<Tag>,
     /// `None` — значение не снято (BAD).
     pub value: Option<TagValue>,
+    /// Достоверность значения.
     pub quality: Quality,
+    /// Момент снятия: время источника, если он его отдаёт (OPC UA), иначе момент чтения шлюзом.
     pub timestamp: Timestamp,
 }
 

@@ -31,6 +31,7 @@ const FAST_TIMEOUTS: [(&str, &str); 5] = [
 /// Тегов каждого контроллера под наблюдением.
 const SAMPLE_PER_CONTROLLER: usize = 3;
 
+/// Текущее время, мс от начала эпохи.
 fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64
 }
@@ -96,6 +97,7 @@ async fn await_link_events(
     pending.into_iter().cloned().collect()
 }
 
+/// Связь с каждым из трёх контроллеров рвётся через TCP-прокси (обрыв и «зависание» без ответа): шлюз жив, значения идут как `BAD`, после возврата связь и данные восстанавливаются сами.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "нужны симулятор и Kafka: cargo test -- --ignored"]
 async fn link_loss_and_recovery() {

@@ -13,29 +13,39 @@ use anyhow::Result;
 /// Все настройки процесса.
 #[derive(Debug, Clone)]
 pub struct Settings {
+    /// Порт HTTP (`SERVER_PORT`): `/actuator/*` и `/api/*`.
     pub http_port: u16,
     /// Адрес привязки HTTP (`GATEWAY_HTTP_BIND`, по умолчанию все интерфейсы).
     pub http_bind: String,
     /// Токен доступа к `/api/*` (`GATEWAY_API_TOKEN` или файл `GATEWAY_API_TOKEN_FILE`); `None` — без проверки.
     /// `/actuator/health` и `/actuator/prometheus` токеном не закрываются (проверка контейнера, сбор метрик).
     pub api_token: Option<Secret>,
+    /// Путь к файлу станции (`CONTROLLERS_YAML`).
     pub controllers_path: PathBuf,
     /// `None` — работа без БД (журнал и история не пишутся, команды только по имени тега).
     pub db: Option<DbSettings>,
+    /// Kafka: брокеры, топики, безопасность.
     pub kafka: KafkaSettings,
+    /// Поведение шлюза: опрос, публикация, команды, резервирование, скрипты.
     pub gateway: GatewaySettings,
 }
 
+/// Настройки Kafka (`KAFKA_*`, `SPRING_KAFKA_*`).
 #[derive(Debug, Clone)]
 pub struct KafkaSettings {
+    /// `false` — без Kafka: опрос идёт, наружу ничего не уходит.
     pub enabled: bool,
+    /// Адреса брокеров через запятую (`SPRING_KAFKA_BOOTSTRAP_SERVERS`).
     pub bootstrap_servers: String,
+    /// Публиковать ли события журнала в топик событий.
     pub publish_events: bool,
+    /// Публиковать ли алармы в топик алармов.
     pub publish_alarms: bool,
     /// Фактор репликации создаваемых шлюзом топиков (на стенде 1, на кластере — по числу брокеров).
     pub replication: i32,
     /// Свойства librdkafka для всех клиентов шлюза (безопасность: TLS, SASL) — см. [`client_properties`].
     pub client: ClientProperties,
+    /// Имена топиков.
     pub topics: Topics,
 }
 
@@ -62,12 +72,18 @@ pub use env::Secret;
 use env::{api_token, default_instance_id, env_any, env_bool, env_ms, env_or, env_parse};
 pub use station::*;
 
+/// Имена топиков Kafka.
 #[derive(Debug, Clone)]
 pub struct Topics {
+    /// Телеметрия: ключ — имя тега, тело — `{value, quality, timestamp}`.
     pub telemetry: String,
+    /// Алармы: аларм и его снятие (`cleared`).
     pub alarms: String,
+    /// События журнала (подключения, команды, смена роли…).
     pub events: String,
+    /// Команды записи от монитора (шлюз читает).
     pub commands: String,
+    /// Результаты команд (шлюз пишет).
     pub command_results: String,
 }
 
@@ -90,8 +106,11 @@ pub struct GatewaySettings {
     pub command_max_age: Duration,
     /// Проверка эффекта записи OPC UA: через столько мс узел читается снова; 0 — выключено.
     pub command_verify: Duration,
+    /// Пользовательские Lua-скрипты каналов.
     pub scripts: ScriptSettings,
+    /// Горячее резервирование.
     pub ha: HaSettings,
+    /// Таймаут одной операции OPC UA (подключение, пачка чтения, запись).
     pub opcua_op_timeout: Duration,
     /// Каталог сертификатов OPC UA-клиента (`own/`, `private/`, `trusted/`, `rejected/`): свой
     /// самоподписанный сертификат создаётся здесь, сертификаты серверов, которым шлюз доверяет, лежат в `trusted/`.
@@ -99,13 +118,17 @@ pub struct GatewaySettings {
     /// Доверять любому сертификату сервера (только для стенда: без проверки сервера защищённый канал
     /// не защищает от подмены). По умолчанию — нет: сертификат сервера кладут в `trusted/`.
     pub opcua_trust_server_certs: bool,
+    /// Таймаут одной операции Modbus.
     pub modbus_op_timeout: Duration,
+    /// Таймаут одной операции PAC.
     pub pac_op_timeout: Duration,
     /// Нет удачных чтений дольше — связь считается мёртвой, сессия пересоздаётся.
     pub stale_after: Duration,
     /// Пауза между попытками подключения.
     pub reconnect_interval: Duration,
+    /// Как часто писать в журнал сводку «кто на связи».
     pub health_log_interval: Duration,
+    /// Как часто слать событие `HEARTBEAT` — признак «шлюз жив» для монитора.
     pub heartbeat_interval: Duration,
 }
 
@@ -115,17 +138,24 @@ pub struct GatewaySettings {
 pub struct PublishSettings {
     /// false — прежнее поведение: каждый тег каждый цикл.
     pub enabled: bool,
+    /// Абсолютная зона нечувствительности: меньшее изменение не публикуется.
     pub deadband: f64,
+    /// Относительная зона, % от последнего опубликованного значения; действует большая из двух зон.
     pub deadband_percent: f64,
+    /// Не чаще одной публикации тега за этот интервал (антидребезг); 0 — выключено.
     pub min_interval: Duration,
+    /// Полная отправка: неизменившееся значение повторяется раз в этот интервал; 0 — выключена.
     pub full_resend: Duration,
 }
 
 /// `gateway.history.*`: фильтр локальной истории; тег переопределяет поля блоком `history:` в YAML.
 #[derive(Debug, Clone)]
 pub struct HistorySettings {
+    /// Абсолютная зона нечувствительности истории.
     pub deadband: f64,
+    /// Относительная зона истории, %.
     pub deadband_percent: f64,
+    /// Не чаще одной точки истории за этот интервал.
     pub min_interval: Duration,
     /// «Пульс»: точка раз в столько, даже если значение стоит. 0 — выключен.
     pub max_interval: Duration,
@@ -134,21 +164,28 @@ pub struct HistorySettings {
 /// `gateway.scripts.*`: пользовательские Lua-скрипты обработки значений.
 #[derive(Debug, Clone)]
 pub struct ScriptSettings {
+    /// Папка со `scripts.yaml` и `.lua`-файлами.
     pub dir: PathBuf,
     /// Лимит времени на один вызов скрипта.
     pub timeout: Duration,
+    /// Как часто проверять папку на изменения.
     pub reload_interval: Duration,
 }
 
 /// `gateway.ha.*`: горячее резервирование (выборы активного экземпляра через группу Kafka).
 #[derive(Debug, Clone)]
 pub struct HaSettings {
+    /// Включено ли резервирование (`GATEWAY_HA_ENABLED`); без него экземпляр активен всегда.
     pub enabled: bool,
+    /// Имя экземпляра в журнале и событиях (по умолчанию `<HOSTNAME>-<pid>`).
     pub instance_id: String,
     /// Служебный топик выборов (одна партиция).
     pub topic: String,
+    /// Группа выборов Kafka; у пары одинаковая.
     pub group_id: String,
+    /// Через сколько брокер считает экземпляр упавшим и отдаёт партнёру лидерство.
     pub session_timeout_ms: u32,
+    /// Период heartbeat группы выборов.
     pub heartbeat_interval_ms: u32,
     /// Активный экземпляр без связи ни с одним контроллером столько времени передаёт лидерство
     /// партнёру (если тот в группе). 0 — не передавать.
@@ -179,6 +216,7 @@ impl Settings {
 }
 
 impl KafkaSettings {
+    /// Kafka из окружения; имена как у Java-шлюза.
     fn from_env() -> Result<Self> {
         Ok(KafkaSettings {
             enabled: env_bool(&["KAFKA_ENABLED"], true),
@@ -234,6 +272,7 @@ impl GatewaySettings {
 }
 
 impl PublishSettings {
+    /// Публикация «по исключению» из окружения (`GATEWAY_PUBLISH_*`).
     fn from_env() -> Result<Self> {
         Ok(PublishSettings {
             enabled: env_bool(&["GATEWAY_PUBLISH_ENABLED"], true),
@@ -246,6 +285,7 @@ impl PublishSettings {
 }
 
 impl HistorySettings {
+    /// Фильтр истории из окружения (`GATEWAY_HISTORY_*`).
     fn from_env() -> Result<Self> {
         Ok(HistorySettings {
             deadband: env_parse(&["GATEWAY_HISTORY_DEADBAND"], 0.0)?,
@@ -257,6 +297,7 @@ impl HistorySettings {
 }
 
 impl ScriptSettings {
+    /// Скрипты из окружения (`GATEWAY_SCRIPTS_*`).
     fn from_env() -> Result<Self> {
         Ok(ScriptSettings {
             dir: PathBuf::from(env_or(&["GATEWAY_SCRIPTS_DIR"], "scripts")),
@@ -267,6 +308,7 @@ impl ScriptSettings {
 }
 
 impl HaSettings {
+    /// Резервирование из окружения (`GATEWAY_HA_*`); группа выборов по умолчанию зависит от топика команд.
     fn from_env(commands_topic: &str) -> Result<Self> {
         Ok(HaSettings {
             enabled: env_bool(&["GATEWAY_HA_ENABLED"], false),
@@ -503,6 +545,28 @@ opcua:
         let units = format!("{}, {}", modbus("a", 40001, 1), modbus("b", 40002, 2));
         let err = rejected(&server("modbus://h:502", &units)).expect("отклонён");
         assert!(err.contains("разные modbusUnitId"), "{err}");
+    }
+
+    /// Примеры `controllers.yaml` в документации не устаревают: каждый блок ```yaml, начинающийся с `opcua:`, проходит
+    /// ту же подстановку и проверку, что и настоящий файл станции.
+    #[test]
+    fn controllers_examples_in_the_docs_are_valid() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut checked = 0;
+        for doc in ["README.md", "docs/CONFIGURATION.md"] {
+            let text = std::fs::read_to_string(root.join(doc)).unwrap();
+            for block in text.split("```yaml\n").skip(1) {
+                let yaml = block.split("```").next().unwrap();
+                if !yaml.starts_with("opcua:") {
+                    continue;
+                }
+                let expanded = expand_placeholders(yaml, |name| Some(format!("{name}-value"))).unwrap();
+                parse_controllers(&expanded)
+                    .unwrap_or_else(|e| panic!("{doc}: пример не проходит проверку: {e:#}\n{yaml}"));
+                checked += 1;
+            }
+        }
+        assert!(checked >= 2, "примеры controllers.yaml в документации не найдены");
     }
 
     #[test]

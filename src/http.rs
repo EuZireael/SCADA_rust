@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use crate::app::App;
 use crate::db::{self, EventFilter};
 
+/// Маршруты: `/actuator/*` открыты, `/api/*` — под токеном (если он задан).
 pub fn router(app: Arc<App>) -> Router {
     let api = Router::new()
         .route("/api/health", get(api_health))

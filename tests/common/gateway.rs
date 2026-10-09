@@ -112,10 +112,12 @@ impl Gateway {
         let _ = self.child.wait();
     }
 
+    /// Имя тестового топика с префиксом этого запуска.
     pub fn topic(&self, suffix: &str) -> String {
         format!("{}.{suffix}", self.prefix)
     }
 
+    /// GET без токена: статус и тело ответа.
     pub fn get(&self, path: &str) -> Option<(u16, String)> {
         self.get_with(path, None)
     }
@@ -130,6 +132,7 @@ impl Gateway {
         self.request("POST", path, None)
     }
 
+    /// HTTP/1.0-запрос к шлюзу по простому сокету (чтобы не тянуть HTTP-клиент в тесты).
     fn request(&self, method: &str, path: &str, bearer: Option<&str>) -> Option<(u16, String)> {
         let mut s = TcpStream::connect_timeout(&([127, 0, 0, 1], self.port).into(), Duration::from_secs(2)).ok()?;
         s.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
@@ -168,6 +171,7 @@ impl Gateway {
         }
     }
 
+    /// Последние строки журнала шлюза — для сообщений об ошибках.
     pub fn log_tail(&self) -> String {
         let text = std::fs::read_to_string(&self.log).unwrap_or_default();
         text.lines().rev().take(30).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
@@ -190,10 +194,12 @@ impl Drop for Gateway {
     }
 }
 
+/// Уникальный префикс топиков запуска (`it-<id>`): параллельные тесты не мешают друг другу.
 pub fn new_prefix() -> String {
     format!("it-{}", &uuid::Uuid::new_v4().simple().to_string()[..8])
 }
 
+/// Клиент Kafka на брокер тестов.
 pub fn kafka_config() -> ClientConfig {
     let mut c = ClientConfig::new();
     c.set("bootstrap.servers", super::kafka_bootstrap());

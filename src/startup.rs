@@ -29,10 +29,12 @@ use crate::{http, poller};
 const STOP_TIMEOUT: Duration = Duration::from_secs(8);
 /// Окно дублей команд: повторная доставка того же `commandId` не пишет в ПЛК дважды.
 const DEDUP_TTL: Duration = Duration::from_secs(60);
+/// Сколько последних идентификаторов команд помнить.
 const DEDUP_MAX: usize = 1000;
 /// Токен REST короче — предупреждение при запуске.
 const MIN_TOKEN_CHARS: usize = 16;
 
+/// Журнал в консоль: уровни из `RUST_LOG`, иначе `info` и тихие шумные библиотеки.
 pub fn init_tracing() {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
@@ -45,7 +47,9 @@ pub fn init_tracing() {
 
 /// Контроллеры из YAML (с id тегов из БД, если она есть) и пул БД.
 pub struct Station {
+    /// Только включённые контроллеры; id тегов — из БД, если она есть.
     pub controllers: Vec<Controller>,
+    /// Пул БД; `None` при `DB_ENABLED=false`.
     pub db: Option<PgPool>,
 }
 
@@ -110,6 +114,7 @@ pub async fn build_kafka(
 
 /// Задачи процесса: под надзором (упавшая перезапускается) и фоновые (писатели, HTTP — работают до отмены).
 pub struct Tasks {
+    /// Общий токен остановки: отмена будит все задачи.
     pub cancel: CancellationToken,
     metrics: Arc<Metrics>,
     events: EventSink,
@@ -118,6 +123,7 @@ pub struct Tasks {
 }
 
 impl Tasks {
+    /// Пустой набор задач; `metrics` и `events` нужны надзирателю.
     pub fn new(metrics: Arc<Metrics>, events: EventSink) -> Self {
         Tasks { cancel: CancellationToken::new(), metrics, events, supervised: Vec::new(), background: JoinSet::new() }
     }
@@ -189,6 +195,7 @@ pub fn spawn_commands(app: &Arc<App>, leadership: &Arc<Leadership>, tasks: &mut 
     if app.kafka.is_none() {
         return;
     }
+    // Один `Dedup` на все перезапуски задачи: после падения консьюмера повтор команды всё равно будет отброшен.
     let dedup = Arc::new(Dedup::new(DEDUP_TTL, DEDUP_MAX));
     let (app, leadership, cancel) = (app.clone(), leadership.clone(), tasks.cancel.clone());
     tasks.supervise("команды", move || {

@@ -24,10 +24,12 @@ use ptusa_opcua::server::{Bridge, Stats, build, parse_bind};
 use ptusa_opcua::snapshot::Snapshot;
 use tracing::{info, warn};
 
+/// Переменная окружения или значение по умолчанию (пустое считается незаданным).
 fn env(name: &str, default: &str) -> String {
     std::env::var(name).ok().filter(|v| !v.is_empty()).unwrap_or_else(|| default.to_string())
 }
 
+/// Запуск фасада: каналы из конфигурации станции, клиент PAC, OPC UA-сервер и цикл снимков.
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -69,6 +71,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Ждать SIGTERM или Ctrl-C.
 async fn shutdown_signal() {
     #[cfg(unix)]
     {

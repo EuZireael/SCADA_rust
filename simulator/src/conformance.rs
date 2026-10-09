@@ -22,10 +22,14 @@ use crate::value::{DataType, Value};
 /// Сколько ждать после записи: программа ПЛК успевает пересчитать поле (сканирование — десятки мс).
 const SETTLE: Duration = Duration::from_millis(450);
 
+/// Исход проверки одного тега.
 #[derive(Debug, PartialEq)]
 enum Outcome {
+    /// Прошивка ведёт себя как описано в конфигурации.
     Pass,
+    /// Расхождение (пояснение внутри).
     Fail(String),
+    /// Проверка невозможна (причина внутри).
     Skip(&'static str),
 }
 
@@ -40,23 +44,28 @@ fn split_field(field: &str) -> (String, Option<i64>) {
     (base, index)
 }
 
+/// Lua-текст команды записи, как его шлёт драйвер: `__<прибор>:set_cmd('<поле>', <индекс>, <значение>)`.
 fn command(device: &str, base: &str, index: Option<i64>, value: f64) -> String {
     format!("__{device}:set_cmd('{base}', {}, {value})", index.unwrap_or(1))
 }
 
+/// Проверяемый PAC: клиент driver-master с короткими операциями «снимок», «запись», «чтение».
 struct Probe<'a> {
     client: &'a mut PacClient,
 }
 
 impl Probe<'_> {
+    /// Свежий снимок состояния всех приборов.
     async fn snapshot(&mut self) -> Result<Snapshot> {
         luatab::parse_snapshot(&self.client.states_lua().await?)
     }
 
+    /// Записать значение командой; код результата (0 — принято).
     async fn write(&mut self, device: &str, base: &str, index: Option<i64>, value: f64) -> Result<u16> {
         self.client.exec(&command(device, base, index, value)).await
     }
 
+    /// Прочитать число поля из свежего снимка.
     async fn read(&mut self, device: &str, base: &str, index: Option<i64>) -> Result<Option<f64>> {
         Ok(luatab::number(&self.snapshot().await?, device, base, index))
     }
@@ -75,6 +84,7 @@ impl Probe<'_> {
     }
 }
 
+/// Равны ли значения с допуском 1e-3 (после округления в прошивке).
 fn close(a: Option<f64>, b: f64) -> bool {
     a.is_some_and(|a| (a - b).abs() < 1e-3)
 }
@@ -85,6 +95,7 @@ fn expected_after_write(tag: &Tag, test: f64) -> f64 {
     shaped.unwrap_or(test)
 }
 
+/// Проверить один записываемый тег: записать, подождать, перечитать и сравнить с тем, что должна оставить прошивка по правилам из конфигурации; значение тега после проверки возвращается.
 async fn check(probe: &mut Probe<'_>, tag: &Tag) -> Result<Outcome> {
     let (Some(device), Some(field)) = (&tag.device, &tag.field) else {
         return Ok(Outcome::Skip("нет device/field"));
@@ -172,6 +183,7 @@ async fn check_protocol_codes(client: &mut PacClient, device: &str, base: &str) 
     Ok(problems)
 }
 
+/// `simulator conformance`: проверить все записываемые PAC-теги конфигурации на PAC по адресу `host:port`; расхождение — ненулевой код выхода.
 pub async fn run(host: &str, port: u16, config_path: &Path) -> Result<()> {
     let cfg = config::load(config_path)?;
     let mut tags = Vec::new();

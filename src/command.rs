@@ -18,12 +18,16 @@ use crate::pac::lua;
 /// Исход команды.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Outcome {
+    /// Статус: `APPLIED`, `REJECTED_*` или `FAILED_*`.
     pub status: &'static str,
+    /// Пояснение для оператора.
     pub message: String,
+    /// Записанное значение (в `appliedValue` результата); есть только при успехе.
     pub applied: Option<TagValue>,
 }
 
 impl Outcome {
+    /// Успех: записанное значение попадает в результат.
     fn applied(value: TagValue) -> Self {
         Outcome {
             status: "APPLIED", message: format!("Записано значение {}", value), applied: Some(value)
@@ -42,10 +46,12 @@ impl Outcome {
         }
     }
 
+    /// Отказ или сбой: статус и пояснение, записанного значения нет.
     fn fail(status: &'static str, message: impl Into<String>) -> Self {
         Outcome { status, message: message.into(), applied: None }
     }
 
+    /// Команда применена (`APPLIED`).
     pub fn success(&self) -> bool {
         self.status == "APPLIED"
     }
@@ -167,11 +173,13 @@ async fn write_opcua(app: &App, controller: &crate::app::ControllerHandle, w: Wr
         }
     };
     let verify = app.settings.gateway.command_verify;
+    // Значение до записи нужно, чтобы отличить «запись не подействовала» от «значение и так было таким».
     let before = if verify.is_zero() { None } else { read_back(&conn, &tag.node_id).await };
     match conn.write(node, variant).await {
         Ok(status) if status.is_good() => {
             info!("✍ OPC UA записано {} = {}", tag.name, value);
             if let Some(before) = before {
+                // Даём ПЛК применить запись: программа ПЛК обрабатывает её на своём цикле, а не мгновенно.
                 tokio::time::sleep(verify).await;
                 if let Some(after) = read_back(&conn, &tag.node_id).await
                     && !same_value(&after, &value)
@@ -248,6 +256,7 @@ pub struct Dedup {
 }
 
 impl Dedup {
+    /// Окно из `max` последних идентификаторов, помнящих `ttl`.
     pub fn new(ttl: Duration, max: usize) -> Self {
         Dedup { seen: Mutex::new((HashMap::new(), VecDeque::new())), ttl, max }
     }
@@ -262,6 +271,7 @@ impl Dedup {
         }
         map.insert(id.to_string(), now);
         order.push_back(id.to_string());
+        // Окно ограничено по числу записей: старейшие вытесняются, память не растёт.
         while order.len() > self.max {
             if let Some(old) = order.pop_front() {
                 map.remove(&old);

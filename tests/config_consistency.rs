@@ -36,10 +36,12 @@ struct SimTag {
     modbus_type: Option<String>,
 }
 
+/// Путь от корня репозитория.
 fn path(rel: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(rel)
 }
 
+/// Каждый включённый канал `controllers.yaml` есть в конфигурации симулятора с тем же типом, адресом и правом записи, и наоборот: расхождение иначе проявилось бы на стенде только BAD или отказом команды.
 #[test]
 fn gateway_and_simulator_describe_the_same_channels() {
     let gateway =
