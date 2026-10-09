@@ -11,7 +11,7 @@
 
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use mlua::{Lua, Table, Value};
 
 use crate::model::{self, TagValue};
@@ -59,9 +59,12 @@ impl PacLua {
 
     /// Значение поля прибора из снимка `t`, приведённое к типу тега. `None` — нет снимка,
     /// прибора, поля, элемента массива или значение не приводится к типу.
+    ///
+    /// Прибор — обычная таблица `t.LINE1V0` или элемент массива `RECMAN[1]` (`t.RECMAN[1]`: менеджер рецептов ptusa
+    /// лежит в снимке массивом, и ключа `"RECMAN[1]"` в нём нет).
     pub fn read(&self, device: &str, field: &str, data_type: &str) -> Option<TagValue> {
         let snapshot: Table = self.lua.globals().get("t").ok()?;
-        let dev: Table = snapshot.get(device).ok()?;
+        let dev = device_table(&snapshot, device)?;
         convert(&field_value(&dev, field)?, data_type)
     }
 
@@ -72,21 +75,32 @@ impl PacLua {
     }
 }
 
-/// Поле прибора: `ST` или элемент массива `RT_PAR_F[12]` (подпись после `]` отбрасывается).
+/// Имя и необязательный индекс массива: `RT_PAR_F[12]` → (`RT_PAR_F`, 12), `ST` → (`ST`, нет). Хвост после `]`
+/// (`PAR_MAIN[1].P_CZAD_S`) — подпись канала, в адрес не входит. `None` — индекс не число.
+pub fn split_index(name: &str) -> Option<(&str, Option<i64>)> {
+    let Some(lb) = name.find('[') else { return Some((name, None)) };
+    let rb = lb + name[lb..].find(']')?;
+    let index = name[lb + 1..rb].trim().parse().ok()?;
+    Some((&name[..lb], Some(index)))
+}
+
+/// Таблица прибора в снимке: `t.NAME` или, если в имени индекс, элемент массива `t.NAME[i]`.
+fn device_table(snapshot: &Table, device: &str) -> Option<Table> {
+    match split_index(device)? {
+        (name, None) => snapshot.get(name).ok(),
+        (name, Some(index)) => snapshot.get::<Table>(name).ok()?.get(index).ok(),
+    }
+}
+
+/// Поле прибора: `ST` или элемент массива `RT_PAR_F[12]` (Lua-индекс с 1; подпись после `]` отбрасывается).
 fn field_value(dev: &Table, field: &str) -> Option<Value> {
-    let value = match field.find('[') {
-        None => dev.get::<Value>(field).ok()?,
-        Some(lb) => {
-            let rb = lb + field[lb..].find(']')?;
-            let array: Table = dev.get(&field[..lb]).ok()?;
-            let index: i64 = field[lb + 1..rb].trim().parse().ok()?;
-            array.get::<Value>(index).ok()?
-        }
+    let value = match split_index(field)? {
+        (name, None) => dev.get::<Value>(name).ok()?,
+        (name, Some(index)) => dev.get::<Table>(name).ok()?.get::<Value>(index).ok()?,
     };
     (!value.is_nil()).then_some(value)
 }
 
-/// Значение Lua как число (строка с числом тоже годится).
 fn number(v: &Value) -> Option<f64> {
     match v {
         Value::Integer(i) => Some(*i as f64),
@@ -132,6 +146,42 @@ pub fn scalar(value: &TagValue) -> Result<String> {
     })
 }
 
+/// Текст команды `EXEC_DEVICE_COMMAND` для записи `device.field = value`.
+///
+/// * Обычный прибор: `__LINE1V0:set_cmd('ST', 1, 1)`. Индекс массива — **отдельным аргументом**, а не в имени поля:
+///   `RT_PAR_F[62]` → `set_cmd('RT_PAR_F', 62, v)`. Вариант `set_cmd('RT_PAR_F[62]', 1, v)` прошивка принимает с кодом 0
+///   и ничего не меняет, то есть запись выглядела бы выполненной.
+/// * Элемент массива приборов (`RECMAN[1]`, менеджер рецептов): ptusa разбирает такую команду не Lua, а регулярным
+///   выражением `__RECMAN\[(\d+)\]:set_cmd\( "(\w+)", (\d+), ((?:"(.*)")|([\d\.]+)) \)` — строго двойные кавычки,
+///   по пробелу внутри скобок, строковое значение в кавычках, число только из цифр и точки (без знака). Любой другой
+///   вид ptusa молча не применяет, поэтому отрицательное число и строка с кавычкой отклоняются здесь.
+pub fn command_text(device: &str, field: &str, value: &TagValue) -> Result<String> {
+    let (base, index) = split_index(field).ok_or_else(|| anyhow!("поле {field:?}: индекс не число"))?;
+    let index = index.unwrap_or(1);
+    match split_index(device).ok_or_else(|| anyhow!("прибор {device:?}: индекс не число"))? {
+        (name, None) => Ok(format!("__{name}:set_cmd('{base}', {index}, {})", scalar(value)?)),
+        (name, Some(n)) => Ok(format!("__{name}[{n}]:set_cmd( \"{base}\", {index}, {} )", recman_value(value)?)),
+    }
+}
+
+/// Значение для команды менеджера рецептов: число из цифр и точки или строка в двойных кавычках.
+fn recman_value(value: &TagValue) -> Result<String> {
+    match value {
+        TagValue::Text(s) => {
+            anyhow::ensure!(
+                !s.contains(['"', '\n', '\r', '\0']),
+                "строка для менеджера рецептов не может содержать кавычки и переводы строк"
+            );
+            Ok(format!("\"{s}\""))
+        }
+        other => {
+            let text = scalar(other)?;
+            anyhow::ensure!(!text.starts_with('-'), "менеджер рецептов принимает только неотрицательные числа");
+            Ok(text)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Instant;
@@ -169,6 +219,71 @@ mod tests {
         assert_eq!(l.read("OBJECT1", "RT_PAR_F[7]", "FLOAT"), Some(TagValue::F64(0.98)));
         assert_eq!(l.read("OBJECT1", "RT_PAR_F[12]", "FLOAT"), Some(TagValue::F64(1.0)));
         assert_eq!(l.read("OBJECT1", "PAR_MAIN[2].P_CMIN_S", "FLOAT"), Some(TagValue::F64(0.2)));
+    }
+
+    /// Менеджер рецептов лежит в снимке массивом: тег `deviceName: "RECMAN[1]"` читается как `t.RECMAN[1]`.
+    #[test]
+    fn reads_devices_that_are_array_elements() {
+        let l = PacLua::new().unwrap();
+        l.exec("t = t or {}\nt.RECMAN = {\n {CMD=0, NMR=1, PAR={0.5, 1.5}},\n {CMD=2, NMR=2},\n}\nt.LINE1V0 = {ST=1}")
+            .unwrap();
+        assert_eq!(l.read("RECMAN[1]", "CMD", "INT32"), Some(TagValue::Int(0)));
+        assert_eq!(l.read("RECMAN[2]", "NMR", "INT32"), Some(TagValue::Int(2)));
+        assert_eq!(l.read("RECMAN[1]", "PAR[2]", "FLOAT"), Some(TagValue::F64(1.5)));
+        assert_eq!(l.read("RECMAN[3]", "CMD", "INT32"), None, "нет такого элемента");
+        assert_eq!(l.read("RECMAN", "CMD", "INT32"), None, "массив без индекса — не прибор");
+        assert_eq!(l.read("RECMAN[x]", "CMD", "INT32"), None);
+        assert_eq!(l.read("LINE1V0", "ST", "INT32"), Some(TagValue::Int(1)), "обычные приборы читаются как раньше");
+    }
+
+    #[test]
+    fn index_is_split_from_the_name_and_the_label_is_dropped() {
+        assert_eq!(split_index("ST"), Some(("ST", None)));
+        assert_eq!(split_index("RT_PAR_F[12]"), Some(("RT_PAR_F", Some(12))));
+        assert_eq!(split_index("PAR_MAIN[ 3 ].P_CZAD_S"), Some(("PAR_MAIN", Some(3))));
+        assert_eq!(split_index("RT_PAR_F[x]"), None);
+        assert_eq!(split_index("RT_PAR_F[1"), None);
+    }
+
+    #[test]
+    fn command_text_puts_the_array_index_in_its_own_argument() {
+        let v = TagValue::F64(7.5);
+        assert_eq!(command_text("LINE1V0", "ST", &TagValue::Int(1)).unwrap(), "__LINE1V0:set_cmd('ST', 1, 1)");
+        assert_eq!(command_text("OBJECT1", "RT_PAR_F[62]", &v).unwrap(), "__OBJECT1:set_cmd('RT_PAR_F', 62, 7.5)");
+        assert_eq!(
+            command_text("OBJECT1", "PAR_MAIN[1].P_CZAD_S", &TagValue::Int(3)).unwrap(),
+            "__OBJECT1:set_cmd('PAR_MAIN', 1, 3)",
+            "подпись после ] — не часть адреса"
+        );
+        assert!(command_text("OBJECT1", "RT_PAR_F[x]", &v).is_err());
+    }
+
+    /// Формат менеджера рецептов — регулярное выражение прошивки: двойные кавычки, пробелы в скобках, число без знака.
+    #[test]
+    fn recipe_manager_command_follows_the_firmware_pattern() {
+        assert_eq!(
+            command_text("RECMAN[1]", "CMD", &TagValue::Int(1001)).unwrap(),
+            "__RECMAN[1]:set_cmd( \"CMD\", 1, 1001 )"
+        );
+        assert_eq!(
+            command_text("RECMAN[2]", "PAR[3]", &TagValue::F64(0.25)).unwrap(),
+            "__RECMAN[2]:set_cmd( \"PAR\", 3, 0.25 )"
+        );
+        assert_eq!(
+            command_text("RECMAN[1]", "NAME", &TagValue::Text("Творог 5%".into())).unwrap(),
+            "__RECMAN[1]:set_cmd( \"NAME\", 1, \"Творог 5%\" )"
+        );
+        assert_eq!(
+            command_text("RECMAN[1]", "CMD", &TagValue::Bool(true)).unwrap(),
+            "__RECMAN[1]:set_cmd( \"CMD\", 1, 1 )"
+        );
+        // То, что регулярное выражение не примет, прошивка молча проигнорирует: отказ здесь честнее.
+        assert!(command_text("RECMAN[1]", "CMD", &TagValue::Int(-5)).is_err(), "знак минус");
+        assert!(command_text("RECMAN[1]", "NAME", &TagValue::Text("a\"b".into())).is_err(), "кавычка в строке");
+        assert!(command_text("RECMAN[1]", "NAME", &TagValue::Text("a\nb".into())).is_err(), "перевод строки");
+        assert!(command_text("RECMAN[1]", "CMD", &TagValue::F64(f64::NAN)).is_err());
+        // У обычного прибора строка по-прежнему недопустима: в Lua-тексте она была бы кодом.
+        assert!(command_text("LINE1V0", "ST", &TagValue::Text("1".into())).is_err());
     }
 
     #[test]

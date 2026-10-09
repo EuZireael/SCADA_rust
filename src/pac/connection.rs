@@ -72,11 +72,11 @@ impl PacConnection {
         self.lua.read(device, field, data_type)
     }
 
-    /// EXEC_DEVICE_COMMAND: `__<device>:set_cmd('<field>', 1, <value>)`. Возвращает код
-    /// результата PAC (LE16): 0 — применено, иначе команда не выполнилась (соединение при
-    /// этом живо). Err — сбой связи.
+    /// EXEC_DEVICE_COMMAND; текст команды — [`lua::command_text`] (индекс массива отдельным аргументом, `RECMAN[n]` в
+    /// своём формате). Возвращает код результата PAC (LE16): 0 — применено, иначе команда не выполнилась (соединение при
+    /// этом живо). `Err` — сбой связи или значение, которое нельзя записать командой.
     pub async fn exec_command(&mut self, device: &str, field: &str, value: &TagValue) -> Result<u16> {
-        let cmd = format!("__{device}:set_cmd('{field}', 1, {})", lua::scalar(value)?);
+        let cmd = lua::command_text(device, field, value)?;
         let result = self.request(CMD_EXEC_DEVICE_COMMAND, cmd.as_bytes()).await?;
         Ok(exec_result_code(&result))
     }
@@ -178,7 +178,7 @@ pub mod fake {
                     CMD_GET_DEVICES_STATES => [&[0u8, 0][..], STATES.as_bytes()].concat(),
                     CMD_EXEC_DEVICE_COMMAND => {
                         let lua = String::from_utf8_lossy(&payload[1..]).to_string();
-                        let ok = lua.starts_with("__LINE1V0:");
+                        let ok = lua.starts_with("__LINE1V0:") || lua.starts_with("__RECMAN[");
                         seen.lock().unwrap().push(lua);
                         if ok { vec![0, 0] } else { vec![1, 0] }
                     }
@@ -213,6 +213,24 @@ mod tests {
     async fn fails_without_banner() {
         let (port, _) = fake::spawn(false).await;
         assert!(PacConnection::connect("127.0.0.1", port, Duration::from_millis(500)).await.is_err());
+    }
+
+    /// Запись в элемент массива уходит индексом отдельным аргументом (иначе ptusa отвечает 0 и ничего не меняет), а
+    /// менеджер рецептов — в своём формате с двойными кавычками.
+    #[tokio::test]
+    async fn array_element_and_recipe_manager_commands_have_the_wire_format_of_ptusa() {
+        let (port, commands) = fake::spawn(true).await;
+        let mut conn = PacConnection::connect("127.0.0.1", port, Duration::from_secs(2)).await.unwrap();
+        conn.write_command("LINE1V0", "RT_PAR_F[62]", &TagValue::F64(7.5)).await.unwrap();
+        conn.write_command("RECMAN[1]", "CMD", &TagValue::Int(1001)).await.unwrap();
+        conn.write_command("RECMAN[2]", "NAME", &TagValue::Text("Сыр".into())).await.unwrap();
+        let sent = commands.lock().unwrap().clone();
+        assert_eq!(sent[0], "__LINE1V0:set_cmd('RT_PAR_F', 62, 7.5)");
+        assert_eq!(sent[1], "__RECMAN[1]:set_cmd( \"CMD\", 1, 1001 )");
+        assert_eq!(sent[2], "__RECMAN[2]:set_cmd( \"NAME\", 1, \"Сыр\" )");
+        // Недопустимое значение отклоняется до отправки: ни одной лишней команды.
+        assert!(conn.write_command("RECMAN[1]", "CMD", &TagValue::Int(-1)).await.is_err());
+        assert_eq!(commands.lock().unwrap().len(), 3);
     }
 
     #[tokio::test]

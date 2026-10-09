@@ -208,8 +208,9 @@ async fn write_pac(controller: &crate::app::ControllerHandle, w: Write<'_>) -> O
     let (Some(device), Some(field)) = (tag.device_name.as_deref(), tag.field_name.as_deref()) else {
         return Outcome::fail("REJECTED_UNKNOWN_TAG", format!("У PAC-тега нет device/field для команды: {}", tag.name));
     };
-    // В set_cmd значение подставляется в Lua-текст — только конечное число или bool, строк нет.
-    if let Err(e) = lua::scalar(&value) {
+    // Текст команды собирается тем же кодом, что и при записи: значение, которое в него не помещается (строка, NaN,
+    // отрицательное для менеджера рецептов), отклоняется здесь, до захвата соединения.
+    if let Err(e) = lua::command_text(device, field, &value) {
         return Outcome::fail("REJECTED_TYPE_MISMATCH", format!("{e}"));
     }
     let mut guard = controller.pac.lock().await;
