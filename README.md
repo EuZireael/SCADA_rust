@@ -12,7 +12,7 @@ flowchart LR
     PLC1["OPC UA<br/>контроллеры"] --> GW
     PLC2["Modbus TCP"] --> GW
     PLC3["PAC / ptusa"] --> GW
-    GW(["<b>SCADA Gateway</b><br/>опрос · фильтр «по исключению»<br/>команды · события"])
+    GW["SCADA Gateway<br/>опрос · фильтр «по исключению»<br/>команды · события"]
     GW -->|"телеметрия, алармы,<br/>события, результаты"| K[("Kafka")]
     K -->|команды записи| GW
     GW --> DB[("PostgreSQL<br/>журнал, история")]
